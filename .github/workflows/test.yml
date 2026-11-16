@@ -16,13 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax
-        run: for f in hooks/needs-you.sh bin/nb-autopilot bin/needs-you-window tests/*.sh; do bash -n "$f" || exit 1; done
+        run: for f in hooks/*.sh bin/nb-autopilot bin/needs-you-window bin/needs-you-scan tests/*.sh; do bash -n "$f" || exit 1; done
       - name: Manifests are valid JSON
         run: jq -e . .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json > /dev/null
       - name: Inbox
         run: bash tests/test.sh
       - name: Autopilot
         run: bash tests/autopilot-test.sh
+      - name: Scan of sessions that already wait
+        run: bash tests/scan-test.sh
       - name: Window (Swift)
         run: bash tests/window-test.sh window.png
       - name: Window screenshot
@@ -40,4 +42,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck -x hooks/needs-you.sh hooks/settings.sh bin/nb-autopilot bin/needs-you-window tests/*.sh
+        run: shellcheck -x hooks/*.sh bin/nb-autopilot bin/needs-you-window bin/needs-you-scan tests/*.sh

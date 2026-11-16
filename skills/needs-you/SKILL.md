@@ -19,6 +19,10 @@ session.
 | needs a permission | the prompt, or "Permission needed: <tool>" |
 | had an action blocked | "Blocked: <tool>" |
 
+Sessions that already waited before they ran again (a question left open when
+the app was closed) come in through `needs-you-scan`: on `SessionStart`, when the
+window opens and every 5 minutes. It lists questions from the last day.
+
 An entry is handled (greyed, at the bottom) once the owner writes to that
 session or one of its own tool calls finishes. Entries go after 24 hours or
 with "Clear handled".

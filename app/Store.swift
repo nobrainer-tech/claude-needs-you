@@ -123,6 +123,21 @@ func runAutopilot(_ arguments: [String]) {
   p.waitUntilExit()
 }
 
+// Sessions that already wait (asked before the app was closed, or in a session
+// that has not run since) come in through bin/needs-you-scan, next to
+// nb-autopilot. It runs in the background; refresh() shows what it wrote.
+func runScan() {
+  guard !autopilotCmd.isEmpty else { return }
+  let scan = ((autopilotCmd as NSString).deletingLastPathComponent as NSString).appendingPathComponent("needs-you-scan")
+  guard FileManager.default.isExecutableFile(atPath: scan) else { return }
+  let p = Process()
+  p.executableURL = URL(fileURLWithPath: scan)
+  p.arguments = ["--no-open"]
+  p.standardOutput = FileHandle.nullDevice
+  p.standardError = FileHandle.nullDevice
+  try? p.run()
+}
+
 func timeLabel(_ ts: TimeInterval) -> String {
   let d = Date(timeIntervalSince1970: ts)
   let f = DateFormatter()
