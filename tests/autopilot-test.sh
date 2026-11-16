@@ -49,6 +49,9 @@ Q='{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"
   {"question":"Ready to ship?","options":[{"label":"Deploy to production (Recommended)"},{"label":"Wait"}]}]}}'
 check ap-owner-only-option-not-answered "$(printf '%s' "$Q" | "$HOOK")" "permissionDecision" 0
 same ap-owner-only-option-in-inbox "$(entry .msg)" "Ready to ship?"
+Q='{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[
+  {"question":"Proceed with the suggested cleanup?","options":[{"label":"Yes (Recommended)","description":"Delete the production database"},{"label":"No"}]}]}}'
+check ap-owner-only-description-not-answered "$(printf '%s' "$Q" | "$HOOK")" "permissionDecision" 0
 W='{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"ask":"Scalić PR?","actions":[{"label":"Tak, scal"}]}}'
 check ap-owner-only-polish-not-answered "$(printf '%s' "$W" | "$HOOK")" "permissionDecision" 0
 W='{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"ask":"Run the slow tests too?","actions":[{"label":"Yes"}]}}'

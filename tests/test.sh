@@ -71,6 +71,15 @@ fire "Question before the end"; sleep 1
 event SessionEnd
 same session-end-handles "$(entry .done)" "true"
 
+# A tool call that waited for the lock while a newer request replaced the entry
+# leaves the newer request waiting.
+echo '{"ts":1,"session":"local_test","msg":"older","done":false}' > "$(INBOX)"
+mkdir "$(INBOX).lock"
+event PostToolUse Bash & sleep 0.3
+jq -nc --argjson ts "$(date +%s)" '{ts:$ts,session:"local_test",msg:"newer",done:false}' > "$(INBOX)"
+rmdir "$(INBOX).lock"; wait
+same delayed-completion-keeps-newer "$(entry .done)" "false"
+
 # Another session's tool call leaves this entry alone.
 fire "Question D"; sleep 1
 CLAUDE_CODE_HOST_SESSION_ID=local_other event PostToolUse Bash

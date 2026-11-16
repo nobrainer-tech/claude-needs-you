@@ -67,9 +67,13 @@ case "$EVENT" in
     [ "$TOOL" = mcp__ccd_turn__wrap_up ] && exit 0
     [ -n "$AGENT" ] && exit 0
     [ -f "$ENTRY" ] || exit 0
-    jq -e '.done != true' "$ENTRY" >/dev/null 2>&1 || exit 0
+    # The request this event follows; checked again under the lock, so a newer
+    # request written while we waited for it stays waiting.
+    TS=$(jq -r 'select(.done != true) | .ts' "$ENTRY" 2>/dev/null)
+    [ -n "$TS" ] || exit 0
     lock_entry || exit 0
-    jq -c --argjson n "$(date +%s)" 'if .done != true then .done = true | .done_ts = $n else . end' \
+    jq -c --argjson n "$(date +%s)" --argjson ts "$TS" \
+      'if .done != true and .ts == $ts then .done = true | .done_ts = $n else . end' \
       "$ENTRY" > "$ENTRY.tmp.$$" 2>/dev/null && mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null
     rm -f "$ENTRY.tmp.$$" 2>/dev/null
     unlock_entry

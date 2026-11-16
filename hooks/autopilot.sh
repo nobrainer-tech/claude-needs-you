@@ -22,12 +22,13 @@ AP=$(jq -r --arg id "$SID" --argjson now "$NOW" '
 # Steps only the owner may take, in English and Polish: merging, pushing,
 # deploying, publishing or sending, deleting, paying, logins and secrets,
 # permissions, commits and pull requests. Checked in the question, its options
-# and suggested answers, the plan, and a permission's tool and whole input.
+# (labels and descriptions) and suggested answers, the plan, and a permission's tool and whole input.
 OWNER_ONLY='merg|push|deploy|publish|release|delet|drop|remove|\brm\b|truncate|reset --hard|--force|purchas|(\b|_)pay|refund|login|log in|password|credential|permission|secret|token|sudo|(\b|_)send(\b|_)|e-?mail\b|(\b|_)post(\b|_)|tweet|commit|pull request|gh pr|gh release|npm publish|vercel|curl[^|;]*(-X|--data|-d |-F )|\bssh\b|\bscp\b|scal|wypchn|wdro|opublik|publikac|wyślij|usu[nń]|kasow|zapła|płatno|hasł|zalog|uprawnie|zgod'
 
 autopilot_owner_only() {
   printf '%s' "$INPUT" | jq -e --arg re "$OWNER_ONLY" --arg ev "$EVENT" '
-    [.tool_input.questions[]? | .question, (.options[]?.label)] + [.tool_input.ask, .tool_input.plan]
+    [.tool_input.questions[]? | .question, .header, (.options[]? | .label, .description)]
+    + [.tool_input.ask, .tool_input.plan]
     + [.tool_input.actions[]? | .label, .action]
     + (if $ev == "PermissionRequest" then [.tool_name, (.tool_input | tostring)] else [] end)
     | map(strings) | join(" ") | test($re; "i")' >/dev/null 2>&1
