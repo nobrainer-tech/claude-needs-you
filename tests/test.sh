@@ -125,6 +125,11 @@ same file-text-beats-language "$(entry .msg)" "Plan do akceptacji"
 # The session's own environment still wins.
 NEEDS_YOU_PERMISSION="Zgoda" sh -c 'echo "{\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Read\"}" | "$0"' "$HOOK"; sleep 1
 same environment-beats-file "$(entry .msg)" "Zgoda: Read"
+# A command of several lines from the file runs as written, line by line.
+jq -n --arg c "printf first >> '$HOME/idle.out'
+printf second >> '$HOME/idle.out'" '{NEEDS_YOU_IDLE_CMD:$c}' > "$HOME/.claude/needs-you/settings.json"
+FAKE_IDLE_NS=900000000000 sh -c 'echo "{\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Edit\"}" | "$0"' "$HOOK"; sleep 1
+same file-command-keeps-lines "$(cat "$HOME/idle.out" 2>/dev/null)" "firstsecond"
 # An unknown or unsafe language name is ignored.
 echo '{"NEEDS_YOU_LANG":"../pl"}' > "$HOME/.claude/needs-you/settings.json"
 echo '{"hook_event_name":"PermissionRequest","tool_name":"Grep"}' | "$HOOK"; sleep 1
