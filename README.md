@@ -7,8 +7,9 @@
 <h1 align="center">Needs You</h1>
 
 <p align="center">
-  <strong>Every Claude Code session that is waiting for you, in one window.<br>
-  One click opens it. Autopilot clicks for you while you are away.</strong>
+  <strong>For Claude Code geeks with a sidebar full of sections, sessions and sub-sessions.<br>
+  Every one that waits for you, in one window. One click opens it.<br>
+  Autopilot clicks for you while you are away.</strong>
 </p>
 
 <p align="center">
@@ -26,9 +27,12 @@
   <img src="assets/window.png" width="540" alt="The Needs You window: three waiting sessions with their time, sidebar section, project and question, a handled one greyed out at the bottom, an Autopilot switch on each session and 'Autopilot on until 08:00' at the top">
 </p>
 
-With five Claude Code sessions open, one of them is usually waiting for you: a
+**Who it is for.** You run Claude Code like a team: sidebar sections per area,
+a coordinator session in each, sub-sessions it started, a dozen conversations
+working at once. In that setup one of them is always waiting for you: a
 question, a plan to approve, a permission prompt. You find out when you happen
-to look at it.
+to scroll past it, sometimes hours later. With one or two sessions you do not
+need this; Claude Code's own notifications are enough.
 
 **Needs You** puts all of them in one small window:
 
