@@ -20,6 +20,8 @@ PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
 command -v jq >/dev/null 2>&1 || exit 0
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=hooks/settings.sh
+. "$ROOT/hooks/settings.sh"
 HEADLINE="${NEEDS_YOU_TITLE:-Claude needs you}"
 OPEN_LABEL="${NEEDS_YOU_OPEN:-Open}"
 LATER_LABEL="${NEEDS_YOU_LATER:-Later}"

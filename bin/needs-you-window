@@ -15,6 +15,8 @@ PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="$HOME/.claude/needs-you"
 CACHE="$HOME/Library/Caches/needs-you/bin"
+# Texts and settings, the same as the hook gives the window it opens.
+command -v jq >/dev/null 2>&1 && . "$ROOT/hooks/settings.sh"
 
 # Without the Command Line Tools, /usr/bin/swiftc is a stub that offers to
 # install them, so ask xcrun first and never run the stub.

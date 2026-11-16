@@ -59,8 +59,13 @@ seconds). The same message from the same session counts once per 2 minutes.
 
 ## Change the text
 
-Every text is a `NEEDS_YOU_*` variable in the `env` block of
-`~/.claude/settings.json`; the README lists them. `NEEDS_YOU_IDLE_CMD` runs a
+Settings go in `~/.claude/needs-you/settings.json`, a JSON object of
+`NEEDS_YOU_*` names and text. It is read on every request, so open sessions
+pick a change up at once. `"NEEDS_YOU_LANG": "pl"` switches every text to the
+built-in Polish (`texts/pl.json`); a single `NEEDS_YOU_*` text overrides it.
+The `env` block of `~/.claude/settings.json` wins over the file but reaches
+only sessions started after the change. The window keeps the texts it opened
+with: after a change, close it and the next request opens it again. `NEEDS_YOU_IDLE_CMD` runs a
 command of the owner's (for example a message to the phone) when a request
 comes while the Mac has been idle for `NEEDS_YOU_IDLE_MINUTES` (default 10).
 

@@ -15,7 +15,7 @@ FAIL=0
 cat > "$WORK/bin/window" <<'EOF'
 #!/bin/bash
 [ "${1:-}" = --check ] && exit "${FAKE_NO_WINDOW:-0}"
-echo "WINDOW $*" >> "$FAKE_LOG"
+echo "WINDOW $* [${NEEDS_YOU_TITLE:-}]" >> "$FAKE_LOG"
 EOF
 cat > "$WORK/bin/terminal-notifier" <<'EOF'
 #!/bin/bash
@@ -47,7 +47,10 @@ export PATH="$WORK/bin:$PATH" NEEDS_YOU_WINDOW_CMD="$WORK/bin/window"
 setup() {
   export HOME="$WORK/$1" FAKE_LOG="$WORK/$1.log"
   export CLAUDE_CODE_HOST_SESSION_ID="local_test"
-  unset FAKE_BANNER_EXIT FAKE_ANSWER FAKE_NO_WINDOW FAKE_IDLE_NS NEEDS_YOU_IDLE_CMD
+  unset FAKE_BANNER_EXIT FAKE_ANSWER FAKE_NO_WINDOW FAKE_IDLE_NS
+  # Only the test's own window stand-in; no text or setting of the machine.
+  local v
+  for v in $(compgen -v NEEDS_YOU_); do [ "$v" = NEEDS_YOU_WINDOW_CMD ] || unset "$v"; done
   local app="$HOME/Library/Application Support/Claude"
   mkdir -p "$app/claude-code-sessions/acct/org" "$HOME/my-repo/src"
   git -C "$HOME/my-repo" init -q 2>/dev/null

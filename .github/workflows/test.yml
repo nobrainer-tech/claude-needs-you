@@ -40,4 +40,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck -x hooks/needs-you.sh bin/nb-autopilot bin/needs-you-window tests/*.sh
+        run: shellcheck -x hooks/needs-you.sh hooks/settings.sh bin/nb-autopilot bin/needs-you-window tests/*.sh
