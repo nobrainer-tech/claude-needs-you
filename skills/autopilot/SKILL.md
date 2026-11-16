@@ -21,9 +21,13 @@ command is not found, run `${CLAUDE_PLUGIN_ROOT}/bin/nb-autopilot`.
 | "autopilot off", "I'm back" | `nb-autopilot off` |
 | "is autopilot on?" | `nb-autopilot status` |
 | "what did autopilot decide?" | `nb-autopilot report` |
+| "autopilot for this session", "let this one run alone" | `nb-autopilot session on "$CLAUDE_CODE_HOST_SESSION_ID" "<title>"` |
+| "ask me again in this session" | `nb-autopilot session off "$CLAUDE_CODE_HOST_SESSION_ID"` |
 
 `on` takes the end time as `HH:MM` in local time and means the next such time.
-It switches itself off at that time. State lives in `~/.claude/needs-you/`, so it
+It switches itself off at that time. `session on` covers one session until it
+is switched off; the owner does the same with the Autopilot switch on that
+session's row in the needs-you window, and sets the end time there too. State lives in `~/.claude/needs-you/`, so it
 covers every session on this machine at once, with no restart.
 
 Switch it on only when the owner asks in their own words in this conversation.
