@@ -2,219 +2,207 @@
 # needs-you: one Claude Code hook, two jobs.
 #
 #   Needs You   When a session waits for you (a question, a plan to approve, a
-#               permission prompt), show a macOS notification. Clicking it opens
-#               that exact session in the Claude desktop app.
-#   Autopilot   While `nb-autopilot` is on, a question is refused with an
-#               instruction to take the session's own recommended answer. Every
-#               decision is logged. Permission prompts are never answered.
+#               permission prompt), it goes to one inbox window that lists every
+#               waiting session. Clicking one opens that exact session in the
+#               Claude desktop app. Handled ones grey out and drop to the bottom.
+#   Autopilot   While autopilot is on (for all sessions until a set time, or for
+#               one session ticked in the window), it answers for you: a question
+#               gets the session's own recommended answer, a plan is approved and
+#               a permission granted. Steps only you may take (merge, push,
+#               deploy, publish, send, delete, pay, credentials) always wait for
+#               you. Every decision is logged (hooks/autopilot.sh).
 #
 # Reads the hook JSON on stdin. Prints nothing, or a PreToolUse "deny" under
 # autopilot. Any failure is silent: this hook must never break a session.
-# https://github.com/nobrainer-tech/needs-you
+# https://github.com/nobrainer-tech/claude-needs-you
 
 PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
 command -v jq >/dev/null 2>&1 || exit 0
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HEADLINE="${NEEDS_YOU_TITLE:-Claude needs you}"
 OPEN_LABEL="${NEEDS_YOU_OPEN:-Open}"
 LATER_LABEL="${NEEDS_YOU_LATER:-Later}"
-DATA="$HOME/.claude/needs-you"            # autopilot.json, decisions.jsonl
-STATE="$HOME/Library/Caches/needs-you"    # "already shown" marks, dialog locks
+WINDOW="${NEEDS_YOU_WINDOW_CMD:-$ROOT/bin/needs-you-window}"
+DATA="$HOME/.claude/needs-you"            # inbox/, autopilot.json, decisions.jsonl
+INBOX="$DATA/inbox"
 
 INPUT=$(cat)
 field() { printf '%s' "$INPUT" | jq -r "$1 // empty" 2>/dev/null; }
-EVENT=$(field .hook_event_name)
-TOOL=$(field .tool_name)
+# One jq call for the five fields. The unit separator is not whitespace, so an
+# empty field cannot shift the others.
+IFS=$'\037' read -r EVENT TOOL AGENT CLI_ID TOOL_USE_ID <<EOF
+$(printf '%s' "$INPUT" | jq -r '[.hook_event_name, .tool_name, .agent_id, .session_id, .tool_use_id]
+  | map(. // "" | tostring | gsub("[\u001f\n]"; " ")) | join("\u001f")' 2>/dev/null)
+EOF
+
+# Which session is this? The desktop app sets CLAUDE_CODE_HOST_SESSION_ID; a
+# terminal session has only its own session id.
+APP_ID="${CLAUDE_CODE_HOST_SESSION_ID:-}"
+SID=$(printf '%s' "${APP_ID:-$CLI_ID}" | tr -c 'A-Za-z0-9_.-' '_')
+SID="${SID:-none}"
+ENTRY="$INBOX/$SID.json"
+
+# Every writer of an entry (this hook and the window) holds its lock folder, so
+# a check and the write that follows it see the same request. A lock older than
+# a minute belongs to a writer that crashed.
+lock_entry() {
+  local _
+  for _ in $(seq 1 40); do
+    mkdir "$ENTRY.lock" 2>/dev/null && return 0
+    [ -n "$(find "$ENTRY.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$ENTRY.lock" 2>/dev/null
+    sleep 0.05
+  done
+  return 1
+}
+unlock_entry() { rmdir "$ENTRY.lock" 2>/dev/null; }
+
+# The session moved on: you wrote to it, one of its own tool calls finished (an
+# answered question, an approved plan or permission), or it ended. Its entry is
+# handled.
+# The end-of-turn tool returns before you answer, so it does not count; nor
+# does a subagent's tool call. Tools run in parallel, so a tool call handles a
+# request only when it is the call that request waits on (same tool_use_id).
+case "$EVENT" in
+  UserPromptSubmit|PostToolUse|SessionEnd)
+    [ "$TOOL" = mcp__ccd_turn__wrap_up ] && exit 0
+    [ -n "$AGENT" ] && exit 0
+    [ -f "$ENTRY" ] || exit 0
+    # The request this event follows; checked again under the lock, so a newer
+    # request written while we waited for it stays waiting.
+    TS=$(jq -r 'select(.done != true) | .ts' "$ENTRY" 2>/dev/null)
+    [ -n "$TS" ] || exit 0
+    if [ "$EVENT" = PostToolUse ]; then
+      WAITS_ON=$(jq -r '.tool_use_id // empty' "$ENTRY" 2>/dev/null)
+      [ -z "$WAITS_ON" ] || [ "$WAITS_ON" = "$TOOL_USE_ID" ] || exit 0
+    fi
+    lock_entry || exit 0
+    jq -c --argjson n "$(date +%s)" --argjson ts "$TS" \
+      'if .done != true and .ts == $ts then .done = true | .done_ts = $n else . end' \
+      "$ENTRY" > "$ENTRY.tmp.$$" 2>/dev/null && mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null
+    rm -f "$ENTRY.tmp.$$" 2>/dev/null
+    unlock_entry
+    exit 0 ;;
+esac
 
 case "$EVENT:$TOOL" in
   PreToolUse:AskUserQuestion)        MSG=$(field '.tool_input.questions[0].question') ;;
   PreToolUse:mcp__ccd_turn__wrap_up) MSG=$(field '.tool_input.ask'); [ -n "$MSG" ] || exit 0 ;;
-  PreToolUse:ExitPlanMode)           MSG="A plan is waiting for your approval" ;;
+  PreToolUse:ExitPlanMode)           MSG="${NEEDS_YOU_PLAN:-A plan is waiting for your approval}" ;;
   Notification:*)                    MSG=$(field .message) ;;
-  PermissionRequest:*)               MSG="Permission needed: $TOOL" ;;
-  PermissionDenied:*)                [ -z "$(field .agent_id)" ] || exit 0; MSG="Blocked: $TOOL" ;;
+  PermissionRequest:*)               MSG="${NEEDS_YOU_PERMISSION:-Permission needed}: $TOOL" ;;
+  PermissionDenied:*)                [ -z "$AGENT" ] || exit 0; MSG="${NEEDS_YOU_BLOCKED:-Blocked}: $TOOL" ;;
   *) exit 0 ;;
 esac
-[ -n "$MSG" ] || MSG="A session is waiting for you"
+[ -n "$MSG" ] || MSG="${NEEDS_YOU_WAITING:-A session is waiting for you}"
 
-# Which session is this? The desktop app sets CLAUDE_CODE_HOST_SESSION_ID and
-# keeps the session title in a JSON file; a terminal session has neither.
-APP_ID="${CLAUDE_CODE_HOST_SESSION_ID:-}"
-SID=$(printf '%s' "${APP_ID:-$(field .session_id)}" | tr -c 'A-Za-z0-9_.-' '_')
-SID="${SID:-none}"
-TITLE=""
-LINK=""
+# Title, sidebar section and project of a desktop-app session. Each account
+# keeps its own copy of the session file; the newest one is the live session.
+APP="$HOME/Library/Application Support/Claude"
+FILE=""
 if [ -n "$APP_ID" ]; then
-  FILE=$(find "$HOME/Library/Application Support/Claude/claude-code-sessions" \
-    -name "$APP_ID.json" -type f -print -quit 2>/dev/null)
-  [ -n "$FILE" ] && TITLE=$(jq -r '.title // empty' "$FILE" 2>/dev/null)
-  LINK="claude://claude.ai/epitaxy/$APP_ID"
+  FILE=$(find "$APP/claude-code-sessions" -name "$APP_ID.json" -type f -exec stat -f '%m %N' {} + 2>/dev/null \
+    | sort -rn | head -1 | cut -d' ' -f2-)
 fi
-[ -n "$TITLE" ] || TITLE=$(basename "$(field .cwd)" 2>/dev/null)
-[ -n "$TITLE" ] || TITLE="Claude Code"
+TITLE=""
+[ -n "$FILE" ] && TITLE=$(jq -r '.title // empty' "$FILE" 2>/dev/null)
+# The sidebar section: per account scope (the two folders above the session
+# file), "code:<session id>" -> group id -> group name. Any scope will do.
+SECTION=""
+if [ -n "$FILE" ] && [ -f "$APP/claude_desktop_config.json" ]; then
+  SCOPE=$(printf '%s' "$FILE" | awk -F/ '{print $(NF-2) "/" $(NF-1)}')
+  SECTION=$(jq -r --arg s "$SCOPE" --arg k "code:$APP_ID" '
+    (.preferences.epitaxyPrefs["dframe-group-scopes"] // {}) as $all
+    | ([$all[$s] // empty] + [$all[]]) | map(. as $x | ($x.assignments[$k] // null) as $g
+        | select($g) | ($x.groups[]? | select(.id == $g) | .name)) | .[0] // empty' \
+    "$APP/claude_desktop_config.json" 2>/dev/null)
+fi
+# The project: the repository the session works in, else its folder.
+CWD=""
+[ -n "$FILE" ] && CWD=$(jq -r '.cwd // empty' "$FILE" 2>/dev/null)
+[ -n "$CWD" ] || CWD=$(field .cwd)
+PROJECT=""
+if [ -n "$CWD" ]; then
+  REPO=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)
+  PROJECT=$(basename "${REPO:-$CWD}")
+fi
+[ -n "$TITLE" ] || TITLE="${PROJECT:-Claude Code}"
+LINK=""
+[ -n "$APP_ID" ] && LINK="claude://claude.ai/epitaxy/$APP_ID"
 
 # --- Autopilot -------------------------------------------------------------
-# Only questions are answered. Plans, permission prompts and blocked actions
-# fall through to the notification below. An end time more than a day away is
-# not a real setting (nb-autopilot never writes one), so it counts as off.
-NOW=$(date +%s)
-UNTIL_EPOCH=$(jq -r '.until_epoch // 0' "$DATA/autopilot.json" 2>/dev/null)
-if [ "$EVENT" = PreToolUse ] && [ "$TOOL" != ExitPlanMode ] &&
-   [ "${UNTIL_EPOCH:-0}" -gt "$NOW" ] 2>/dev/null &&
-   [ "$(( UNTIL_EPOCH - NOW ))" -le 86400 ] 2>/dev/null; then
-  UNTIL=$(jq -r '.until // empty' "$DATA/autopilot.json" 2>/dev/null)
-  if [ "$TOOL" = AskUserQuestion ]; then
-    # Per question: the option whose label ends with "(Recommended)", else the
-    # first option. "not recommended" inside a label does not count.
-    DECISION=$(printf '%s' "$INPUT" | jq -r '
-      [.tool_input.questions[]?
-       | .question + " -> "
-         + (([.options[]?.label | strings | select(test("\\(recommended\\)\\s*$"; "i"))][0])
-            // ([.options[]?.label | strings][0]) // "your recommendation")]
-      | join(" | ")' 2>/dev/null)
-    HOW="Do not ask. Take your recommended answer and continue the work: $DECISION."
-  elif [ -n "$(field '.tool_input.actions[0].action')" ]; then
-    # The first answer is an app action (commit, open or merge a pull request,
-    # and so on): a go-ahead that belongs to the owner, never to autopilot.
-    DECISION="$MSG -> left for the owner ($(field '.tool_input.actions[0].action'))"
-    HOW="Do not end the turn with a question, and do not take that step: it needs the owner's go-ahead. Finish the turn without a question and leave it in your final message."
-  else
-    PICK=$(field '.tool_input.actions[0].label')
-    DECISION="$MSG -> ${PICK:-your recommendation}"
-    HOW="Do not end the turn with a question. Act on your recommended answer now ($DECISION), then finish the turn without a question."
-  fi
-  REASON="Autopilot is on until $UNTIL: the owner is away and will not answer. $HOW Never decide these yourself: logins or passwords, payments or purchases, merging, pushing or deploying, publishing or sending anything to other people, deleting data, irreversible production changes, granting permissions. For such a step: skip it, finish the rest and leave the question in your final message. This decision is logged for the owner's morning report."
-  # Answer for the owner only when the decision is on record. If the log cannot
-  # be written, fall through: the owner gets the usual popup instead.
-  mkdir -p "$DATA" 2>/dev/null
-  if jq -nc --argjson ts "$NOW" --arg time "$(date '+%F %H:%M')" --arg session "$SID" \
-       --arg title "$TITLE" --arg tool "$TOOL" --arg decision "$DECISION" \
-       '{ts:$ts,time:$time,session:$session,title:$title,tool:$tool,decision:$decision}' \
-       2>/dev/null >> "$DATA/decisions.jsonl"; then
-    jq -n --arg r "$REASON" \
-      '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-    exit 0
+# shellcheck source=hooks/autopilot.sh
+. "$ROOT/hooks/autopilot.sh"
+autopilot && exit 0
+
+# --- Needs You -------------------------------------------------------------
+mkdir -p "$INBOX" 2>/dev/null
+# One line, at most 180 characters. jq counts characters, so a letter outside
+# ASCII is never cut in half, whatever the locale of the hook's environment.
+MSG=$(jq -rn --arg m "$MSG" '$m | gsub("[\r\n\t]+"; " ") | .[0:180]')
+
+# The same request from the same session, still waiting, counts once per
+# 2 minutes. Once it is handled, the same message again is a new request; so is
+# the same message from another tool call (two Bash prompts in a row).
+if jq -e --arg m "$MSG" --arg tu "$TOOL_USE_ID" --argjson now "$NOW" \
+     '.done != true and .msg == $m and ($now - .ts) < 120
+      and ($tu == "" or (.tool_use_id // "") == "" or .tool_use_id == $tu)' "$ENTRY" >/dev/null 2>&1; then
+  exit 0
+fi
+
+# The tool call the request waits on. A notification has none: it keeps the one
+# of the request it follows, if that one still waits.
+WAITS_ON="$TOOL_USE_ID"
+[ -n "$WAITS_ON" ] || WAITS_ON=$(jq -r 'select(.done != true) | .tool_use_id // empty' "$ENTRY" 2>/dev/null)
+
+# The inbox entry: the newest request of a session replaces its earlier one.
+jq -nc --argjson ts "$NOW" --arg session "$SID" --arg title "$TITLE" --arg section "$SECTION" \
+  --arg project "$PROJECT" --arg msg "$MSG" --arg link "$LINK" --arg tu "$WAITS_ON" \
+  '{ts:$ts,session:$session,title:$title,section:$section,project:$project,msg:$msg,link:$link,done:false}
+   + (if $tu != "" then {tool_use_id:$tu} else {} end)' \
+  > "$ENTRY.tmp.$$" 2>/dev/null && lock_entry && { mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null; unlock_entry; }
+rm -f "$ENTRY.tmp.$$" 2>/dev/null
+
+# Away from the Mac (no keyboard or mouse input for NEEDS_YOU_IDLE_MINUTES,
+# default 10): run your own command too, for example a message to your phone.
+# It gets the request in NEEDS_YOU_MESSAGE, NEEDS_YOU_SESSION_TITLE and
+# NEEDS_YOU_SESSION_ID, and one line of text as its first argument.
+if [ -n "${NEEDS_YOU_IDLE_CMD:-}" ]; then
+  IDLE_NS=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/HIDIdleTime/ {print $NF; exit}')
+  if [ "$(( ${IDLE_NS:-0} / 60000000000 ))" -ge "${NEEDS_YOU_IDLE_MINUTES:-10}" ] 2>/dev/null; then
+    ( NEEDS_YOU_MESSAGE="$MSG" NEEDS_YOU_SESSION_TITLE="$TITLE" NEEDS_YOU_SESSION_ID="$SID" \
+        /bin/sh -c "$NEEDS_YOU_IDLE_CMD" needs-you "$HEADLINE: $TITLE: $MSG" ) </dev/null >/dev/null 2>&1 &
   fi
 fi
 
-# --- Needs You -------------------------------------------------------------
-# The same message from the same session shows once per 2 minutes.
-mkdir -p "$STATE"
-KEY=$(printf '%s|%s' "$SID" "$MSG" | md5 -q)
-[ -n "$(find "$STATE/$KEY" -mmin -2 2>/dev/null)" ] && exit 0
-touch "$STATE/$KEY"
-find "$STATE" -maxdepth 1 -type f -mmin +120 -delete 2>/dev/null
-# A dialog gives up after 60 minutes, so an older lock belongs to a crashed one.
-find "$STATE" -maxdepth 1 -type d -name 'dialog-*' -mmin +70 -exec rm -rf {} + 2>/dev/null
-
-# One line, at most 180 characters. jq counts characters, so a letter outside
-# ASCII is never cut in half, whatever the locale of the hook's environment.
-MSG=$(jq -rn --arg m "$MSG" '$m | gsub("[\r\n]+"; " ") | .[0:180]')
-
-# A banner when macOS allows it, otherwise a dialog that needs no permission.
-#
-# Dialog state per session lives in one directory, $LOCK:
-#   absent        no dialog
-#   pid           the process that owns the dialog loop (alive = dialog open)
-#   dialog_pid    the osascript currently on screen
-#   next          a newer request waiting to replace the one on screen
-# A newer request is handed to the live owner, which closes the old dialog and
-# shows the new one. A lock whose owner is dead is taken over. Files in $LOCK
-# are written under another name and renamed, so a reader never sees half of one.
-# The text goes through argv, never into the script.
-LOCK="$STATE/dialog-$SID.lock"
-
-# True when the process is alive and its command line contains the word: a
-# recycled process id of some unrelated program does not pass.
-is_ours() {  # pid, word
-  [ -n "$1" ] && ps -p "$1" -o command= 2>/dev/null | grep -q -- "$2"
-}
-owner_alive() { is_ours "$(cat "$LOCK/pid" 2>/dev/null)" needs-you; }
-
-# Hand the request to the live owner; fails when there is none.
-hand_off() {
-  owner_alive || return 1
-  printf '%s' "$MSG" > "$LOCK/next.tmp.$$" 2>/dev/null &&
-    mv "$LOCK/next.tmp.$$" "$LOCK/next" 2>/dev/null || return 1
-  local shown
-  shown=$(cat "$LOCK/dialog_pid" 2>/dev/null)
-  is_ours "$shown" osascript && kill -TERM "$shown" 2>/dev/null
-  return 0
-}
-
-# A lock with a dead owner, or one with no owner after 10 s, belongs to a crash.
-lock_is_stale() {
-  [ -d "$LOCK" ] || return 1
-  if [ -f "$LOCK/pid" ]; then
-    owner_alive && return 1
-    return 0
-  fi
-  [ $(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) )) -gt 10 ]
-}
-
-claim_lock() {
-  sh -c 'echo $PPID' > "$LOCK/pid.tmp" && mv "$LOCK/pid.tmp" "$LOCK/pid"
-}
-
-# Runs as the background job itself (exec), so $! is osascript and killing it
-# closes the dialog on screen. Prints the clicked button.
-dialog() {
-  if [ -n "$LINK" ]; then
-    exec osascript -e 'on run argv' -e 'activate' \
-      -e 'set r to display dialog (item 2 of argv) with title (item 1 of argv) buttons {item 3 of argv, item 4 of argv} default button 2 giving up after 3600' \
-      -e 'return button returned of r' -e 'end run' \
-      -- "$HEADLINE: $TITLE" "$1" "$LATER_LABEL" "$OPEN_LABEL" 2>/dev/null
-  fi
-  exec osascript -e 'on run argv' -e 'activate' \
-    -e 'display dialog (item 2 of argv) with title (item 1 of argv) buttons {"OK"} default button 1 giving up after 3600' \
-    -e 'end run' -- "$HEADLINE: $TITLE" "$1" >/dev/null 2>&1
-}
-
-run_dialog_loop() {
-  claim_lock
-  local msg="$1" answer closing
-  while :; do
-    dialog "$msg" > "$LOCK/answer" &
-    echo $! > "$LOCK/dialog_pid.tmp" && mv "$LOCK/dialog_pid.tmp" "$LOCK/dialog_pid"
-    # A request that arrived while no dialog was up replaces this one at once.
-    [ -f "$LOCK/next" ] && kill -TERM $! 2>/dev/null
-    wait $! 2>/dev/null
-    answer=$(cat "$LOCK/answer" 2>/dev/null)
-    if [ -n "$LINK" ] && [ "$answer" = "$OPEN_LABEL" ]; then open "$LINK"; break; fi
-    if mv "$LOCK/next" "$LOCK/current" 2>/dev/null; then msg=$(cat "$LOCK/current"); continue; fi
-    # Close atomically, then pick up a request that arrived in the meantime.
-    closing="$STATE/closing-$$-$RANDOM"
-    mv "$LOCK" "$closing" 2>/dev/null || break
-    if [ -f "$closing/next" ] && mkdir "$LOCK" 2>/dev/null; then
-      msg=$(cat "$closing/next"); rm -rf "$closing"
-      claim_lock; continue
-    fi
-    rm -rf "$closing"; return 0
-  done
-  rm -rf "$LOCK"
-}
-
-deliver() {
+# The window shows the whole inbox and refreshes itself; a call while it is
+# open does nothing. Without the Swift compiler: a banner, else a dialog.
+fallback() {
   if command -v terminal-notifier >/dev/null 2>&1; then
-    # terminal-notifier reads a value that starts with "-", "(", "[" or "{" as
-    # an option or a list, so such a title gets the same mark as the message.
     local sub="$TITLE"
     case "$sub" in [-\(\[\{]*) sub="▸ $sub" ;; esac
-    if [ -n "$LINK" ]; then
-      terminal-notifier -title "$HEADLINE" -subtitle "$sub" -message "▸ $MSG" \
-        -open "$LINK" -group "needs-you-$SID" -sound default && return 0
-    else
-      terminal-notifier -title "$HEADLINE" -subtitle "$sub" -message "▸ $MSG" \
-        -group "needs-you-$SID" -sound default && return 0
-    fi
+    set -- -title "$HEADLINE" -subtitle "$sub" -message "▸ $MSG" -group "needs-you-$SID" -sound default
+    [ -n "$LINK" ] && set -- "$@" -open "$LINK"
+    terminal-notifier "$@" && return 0
   fi
-
-  for _ in 1 2 3 4 5; do
-    mkdir "$LOCK" 2>/dev/null && { run_dialog_loop "$MSG"; return 0; }
-    hand_off && return 0
-    lock_is_stale && rm -rf "$LOCK"
-    sleep 0.2
-  done
+  local answer
+  if [ -n "$LINK" ]; then
+    answer=$(osascript -e 'on run argv' -e 'activate' \
+      -e 'set r to display dialog (item 2 of argv) with title (item 1 of argv) buttons {item 3 of argv, item 4 of argv} default button 2 giving up after 3600' \
+      -e 'return button returned of r' -e 'end run' \
+      -- "$HEADLINE: $TITLE" "$MSG" "$LATER_LABEL" "$OPEN_LABEL" 2>/dev/null)
+    [ "$answer" = "$OPEN_LABEL" ] && open "$LINK"
+  else
+    osascript -e 'on run argv' -e 'activate' \
+      -e 'display dialog (item 2 of argv) with title (item 1 of argv) buttons {"OK"} default button 1 giving up after 3600' \
+      -e 'end run' -- "$HEADLINE: $TITLE" "$MSG" >/dev/null 2>&1
+  fi
+}
+deliver() {
+  if [ "${NEEDS_YOU_WINDOW:-1}" != 0 ] && "$WINDOW" --check; then
+    "$WINDOW" && return 0
+  fi
+  fallback
 }
 ( deliver ) </dev/null >/dev/null 2>&1 &
 disown 2>/dev/null

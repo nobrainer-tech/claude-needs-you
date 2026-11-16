@@ -21,9 +21,13 @@ command is not found, run `${CLAUDE_PLUGIN_ROOT}/bin/nb-autopilot`.
 | "autopilot off", "I'm back" | `nb-autopilot off` |
 | "is autopilot on?" | `nb-autopilot status` |
 | "what did autopilot decide?" | `nb-autopilot report` |
+| "autopilot for this session", "let this one run alone" | `nb-autopilot session on "$CLAUDE_CODE_HOST_SESSION_ID" "<title>"` |
+| "ask me again in this session" | `nb-autopilot session off "$CLAUDE_CODE_HOST_SESSION_ID"` |
 
 `on` takes the end time as `HH:MM` in local time and means the next such time.
-It switches itself off at that time. State lives in `~/.claude/needs-you/`, so it
+It switches itself off at that time. `session on` covers one session until it
+is switched off; the owner does the same with the Autopilot switch on that
+session's row in the needs-you window, and sets the end time there too. State lives in `~/.claude/needs-you/`, so it
 covers every session on this machine at once, with no restart.
 
 Switch it on only when the owner asks in their own words in this conversation.
@@ -47,8 +51,11 @@ A refusal that contains "Autopilot is on" is the owner's standing answer.
    go-ahead (to commit, or to open or merge a pull request). That stays with
    the owner: finish the turn and leave it in your final message.
 
-Autopilot answers questions only. A permission prompt, a plan waiting for
-approval and a blocked command still wait for the owner.
+Autopilot also approves a plan and grants a permission prompt for the owner,
+unless the plan or the request names a step only the owner may take (merge,
+push, deploy, publish, send, delete, pay, credentials, commit, pull request).
+An approved plan does not cover those steps: skip them and leave them in your
+final message. A blocked command still waits for the owner.
 
 ## Ask in a way autopilot can answer
 

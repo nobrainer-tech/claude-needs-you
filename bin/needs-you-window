@@ -1,0 +1,61 @@
+#!/bin/bash
+# needs-you-window: open the needs-you window, or do nothing if it is open.
+#
+# The window is a small Swift program (app/*.swift). It is built
+# once with the Swift compiler of the Xcode Command Line Tools and cached per
+# source version in ~/Library/Caches/needs-you/bin.
+#
+#   needs-you-window            open it (one window per user; a second call is a no-op)
+#   needs-you-window --check    exit 0 when the window can be shown on this Mac
+#   needs-you-window --build    build it now and print the binary's path
+#   needs-you-window --snapshot OUT.png   render the current inbox to a PNG
+# https://github.com/nobrainer-tech/claude-needs-you
+set -u
+PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DATA="$HOME/.claude/needs-you"
+CACHE="$HOME/Library/Caches/needs-you/bin"
+
+# Without the Command Line Tools, /usr/bin/swiftc is a stub that offers to
+# install them, so ask xcrun first and never run the stub.
+have_swiftc() {
+  xcode-select -p >/dev/null 2>&1 && xcrun --find swiftc >/dev/null 2>&1
+}
+
+# One build per version of the sources.
+source_hash() {
+  cat "$ROOT"/app/*.swift 2>/dev/null | md5 -q
+}
+
+build() {
+  local hash bin tmp
+  hash=$(source_hash) || return 1
+  bin="$CACHE/needs-you-window-$hash"
+  if [ ! -x "$bin" ]; then
+    have_swiftc || return 1
+    mkdir -p "$CACHE" || return 1
+    tmp="$bin.tmp.$$"
+    if ! { xcrun swiftc -O -o "$tmp" "$ROOT"/app/*.swift >/dev/null 2>&1 && mv "$tmp" "$bin"; }; then
+      rm -f "$tmp"; return 1
+    fi
+    # Older builds of other versions are no longer used.
+    find "$CACHE" -maxdepth 1 -name 'needs-you-window-*' ! -name "needs-you-window-$hash" -delete 2>/dev/null
+  fi
+  printf '%s\n' "$bin"
+}
+
+case "${1:-}" in
+  --check)
+    [ -x "$CACHE/needs-you-window-$(source_hash)" ] && exit 0
+    have_swiftc ;;
+  --build)
+    build ;;
+  --snapshot)
+    bin=$(build) || exit 1
+    exec "$bin" --inbox "$DATA/inbox" --autopilot "$ROOT/bin/nb-autopilot" --assets "$ROOT/app" --snapshot "${2:?output path}" ;;
+  *)
+    bin=$(build) || { echo "needs-you-window: the Swift compiler is missing (xcode-select --install)" >&2; exit 1; }
+    mkdir -p "$DATA/inbox"
+    nohup "$bin" --inbox "$DATA/inbox" --autopilot "$ROOT/bin/nb-autopilot" --assets "$ROOT/app" </dev/null >/dev/null 2>&1 &
+    ;;
+esac
