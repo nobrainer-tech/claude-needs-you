@@ -98,7 +98,7 @@ their PATH. `needs-you-window` opens the window by hand.
 | ends a turn with a question (Claude desktop app) | is told to act on its first suggested answer and finish the turn |
 | ends a turn asking for a go-ahead to commit or open a pull request | is told not to take that step; the question is left for you |
 | asks about merging, pushing, deploying, publishing, deleting, paying, logging in or granting a permission | is not answered, even when it recommends that step: the question waits for you, in the window |
-| has a plan waiting for approval | the plan is approved, with a reminder to leave owner-only steps for you |
+| has a plan waiting for approval | the plan is approved |
 | needs a permission | the permission is granted |
 | had a command blocked | waits for you, in the window |
 | any of the above naming a step only you may take | waits for you, in the window |
@@ -156,8 +156,8 @@ fallback dialog `NEEDS_YOU_OPEN` and `NEEDS_YOU_LATER`.
   `PermissionRequest` and `PermissionDenied`. It writes one JSON file per
   session to `~/.claude/needs-you/inbox/`. The same request from one session
   counts once per two minutes.
-- `UserPromptSubmit` and `PostToolUse` mark a session's entry handled: you wrote
-  to it, or its own tool call finished. The end-of-turn tool and subagents do
+- `UserPromptSubmit`, `PostToolUse` and `SessionEnd` mark a session's entry
+  handled: you wrote to it, its own tool call finished, or it ended. The end-of-turn tool and subagents do
   not count.
 - The window is about 450 lines of Swift and AppKit in [`app/`](app), built once
   with `swiftc` into `~/Library/Caches/needs-you/bin/`. It reads the inbox every
@@ -213,7 +213,7 @@ Merge it with the hooks you already have. Then run
 ## Tests
 
 ```bash
-bash tests/test.sh            # the inbox: 44 checks
+bash tests/test.sh            # the inbox: 45 checks
 bash tests/autopilot-test.sh  # autopilot: 76 checks
 bash tests/window-test.sh     # builds the window and renders it to a PNG
 ```

@@ -67,6 +67,17 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/needs-you.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

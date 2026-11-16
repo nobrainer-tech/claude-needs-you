@@ -54,9 +54,10 @@ autopilot() {
       autopilot_decide "$decision" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
       return ;;
     PreToolUse:ExitPlanMode)
-      reason="Autopilot is on ($AP): the plan is approved for the owner, who is away. Still never merge, push, deploy, publish, send, delete, pay or touch credentials without the owner: skip such a step and leave it in your final message."
-      autopilot_decide "plan -> approved" "$(jq -n --arg r "$reason" \
-        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r}}')"
+      # Plan approval needs "allow" together with the tool's input (updatedInput),
+      # or the app still asks. A plan that names an owner-only step never gets here.
+      autopilot_decide "plan -> approved" "$(printf '%s' "$INPUT" | jq '{hookSpecificOutput:{
+        hookEventName:"PreToolUse", permissionDecision:"allow", updatedInput:(.tool_input // {})}}')"
       return ;;
     PreToolUse:AskUserQuestion)
       # Per question: the option whose label ends with "(Recommended)", else the

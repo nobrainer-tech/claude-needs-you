@@ -57,12 +57,13 @@ lock_entry() {
 }
 unlock_entry() { rmdir "$ENTRY.lock" 2>/dev/null; }
 
-# The session moved on: you wrote to it, or one of its own tool calls finished
-# (an answered question, an approved plan or permission). Its entry is handled.
+# The session moved on: you wrote to it, one of its own tool calls finished (an
+# answered question, an approved plan or permission), or it ended. Its entry is
+# handled.
 # The end-of-turn tool returns before you answer, so it does not count; nor
 # does a subagent's tool call.
 case "$EVENT" in
-  UserPromptSubmit|PostToolUse)
+  UserPromptSubmit|PostToolUse|SessionEnd)
     [ "$TOOL" = mcp__ccd_turn__wrap_up ] && exit 0
     [ -n "$AGENT" ] && exit 0
     [ -f "$ENTRY" ] || exit 0

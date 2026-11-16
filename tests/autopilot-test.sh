@@ -68,7 +68,7 @@ out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"mcp__mail__send_
 check ap-permission-send-not-allowed "$out" "behavior" 0
 out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{"plan":"Refactor the parser and add tests"}}' | "$HOOK")
 check ap-plan-approved "$out" '"permissionDecision": "allow"' 1
-check ap-plan-reminds-owner-steps "$out" "Still never merge, push, deploy" 1
+check ap-plan-echoes-input "$out" '"plan": "Refactor the parser and add tests"' 1
 rm -f "$(INBOX)"
 out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{"plan":"Fix it, then deploy to production"}}' | "$HOOK")
 check ap-plan-with-deploy-not-approved "$out" "permissionDecision" 0

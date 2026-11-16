@@ -66,6 +66,11 @@ same locked-entry-not-written-yet "$(entry .msg)" "old"
 rmdir "$(INBOX).lock"; wait; sleep 0.3
 same written-after-unlock "$(entry .msg)" "Question while locked"
 
+# A session that ends is handled too.
+fire "Question before the end"; sleep 1
+event SessionEnd
+same session-end-handles "$(entry .done)" "true"
+
 # Another session's tool call leaves this entry alone.
 fire "Question D"; sleep 1
 CLAUDE_CODE_HOST_SESSION_ID=local_other event PostToolUse Bash
