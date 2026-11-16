@@ -51,8 +51,11 @@ A refusal that contains "Autopilot is on" is the owner's standing answer.
    go-ahead (to commit, or to open or merge a pull request). That stays with
    the owner: finish the turn and leave it in your final message.
 
-Autopilot answers questions only. A permission prompt, a plan waiting for
-approval and a blocked command still wait for the owner.
+Autopilot also approves a plan and grants a permission prompt for the owner,
+unless the plan or the request names a step only the owner may take (merge,
+push, deploy, publish, send, delete, pay, credentials, commit, pull request).
+An approved plan does not cover those steps: skip them and leave them in your
+final message. A blocked command still waits for the owner.
 
 ## Ask in a way autopilot can answer
 

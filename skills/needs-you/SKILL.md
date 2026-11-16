@@ -65,5 +65,6 @@ command of the owner's (for example a message to the phone) when a request
 comes while the Mac has been idle for `NEEDS_YOU_IDLE_MINUTES` (default 10).
 
 Do not edit the hook to answer permission prompts or to click for the owner.
-For working unattended, use the `autopilot` skill: it answers questions only
-and logs every decision.
+For working unattended, use the `autopilot` skill: it answers questions,
+approves plans and grants permissions, leaves owner-only steps to the owner and
+logs every decision.

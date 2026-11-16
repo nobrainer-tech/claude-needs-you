@@ -22,7 +22,7 @@ func text(_ key: String, _ fallback: String) -> String {
 let T = (
   title: text("NEEDS_YOU_TITLE", "Claude needs you"),
   empty: text("NEEDS_YOU_EMPTY", "No session is waiting for you."),
-  hint: text("NEEDS_YOU_HINT", "Click a session to open it. Autopilot answers that session's questions with its own recommendation."),
+  hint: text("NEEDS_YOU_HINT", "Click a session to open it. Autopilot answers for that session: its recommended answer, plans, permissions. Merges, pushes, deploys, deletes, payments and secrets still wait for you."),
   clear: text("NEEDS_YOU_CLEAR", "Clear handled"),
   rowAutopilot: text("NEEDS_YOU_ROW_AUTOPILOT", "Autopilot"),
   apStart: text("NEEDS_YOU_AP_START", "Autopilot until"),

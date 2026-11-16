@@ -6,9 +6,11 @@
 #               waiting session. Clicking one opens that exact session in the
 #               Claude desktop app. Handled ones grey out and drop to the bottom.
 #   Autopilot   While autopilot is on (for all sessions until a set time, or for
-#               one session ticked in the window), a question is refused with an
-#               instruction to take the session's own recommended answer. Every
-#               decision is logged. Plans and permission prompts are never answered.
+#               one session ticked in the window), it answers for you: a question
+#               gets the session's own recommended answer, a plan is approved and
+#               a permission granted. Steps only you may take (merge, push,
+#               deploy, publish, send, delete, pay, credentials) always wait for
+#               you. Every decision is logged (hooks/autopilot.sh).
 #
 # Reads the hook JSON on stdin. Prints nothing, or a PreToolUse "deny" under
 # autopilot. Any failure is silent: this hook must never break a session.
@@ -119,59 +121,9 @@ LINK=""
 [ -n "$APP_ID" ] && LINK="claude://claude.ai/epitaxy/$APP_ID"
 
 # --- Autopilot -------------------------------------------------------------
-# Only questions are answered. Plans, permission prompts and blocked actions
-# go to the inbox. It is on for this session when its checkbox in the window is
-# ticked, or for every session until a set time. An end time more than a day
-# away is not a real setting (nb-autopilot never writes one), so it counts as off.
-NOW=$(date +%s)
-AP=$(jq -r --arg id "$SID" --argjson now "$NOW" '
-  if ((.sessions // {})[$id] // {}) | ((.periods // []) | length > 0 and .[-1][1] == null) then "this session"
-  elif (.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400 then "until \(.until)"
-  else empty end' "$DATA/autopilot.json" 2>/dev/null)
-# A question about a step only the owner may take is never answered, even with
-# a recommendation: it goes to the inbox. The words are checked in the question,
-# its options and the suggested answers, in English and Polish.
-OWNER_ONLY='merg|push|deploy|publish|release|delet|drop|remove|purchas|pay|refund|login|log in|password|credential|permission|secret|token|scal|wypchn|wdro|opublik|publikac|usu[nń]|kasow|zapła|płatno|hasł|zalog|uprawnie|zgod'
-if [ -n "$AP" ] && printf '%s' "$INPUT" | jq -e --arg re "$OWNER_ONLY" '
-     [.tool_input.questions[]? | .question, (.options[]?.label)] + [.tool_input.ask]
-     + [.tool_input.actions[]? | .label, .action] | map(strings) | join(" ")
-     | test($re; "i")' >/dev/null 2>&1; then
-  AP=""
-fi
-if [ "$EVENT" = PreToolUse ] && [ "$TOOL" != ExitPlanMode ] && [ -n "$AP" ]; then
-  if [ "$TOOL" = AskUserQuestion ]; then
-    # Per question: the option whose label ends with "(Recommended)", else the
-    # first option. "not recommended" inside a label does not count.
-    DECISION=$(printf '%s' "$INPUT" | jq -r '
-      [.tool_input.questions[]?
-       | .question + " -> "
-         + (([.options[]?.label | strings | select(test("\\((recommended|rekomend[a-z]*|zalecane)\\)\\s*$"; "i"))][0])
-            // ([.options[]?.label | strings][0]) // "your recommendation")]
-      | join(" | ")' 2>/dev/null)
-    HOW="Do not ask. Take your recommended answer and continue the work: $DECISION."
-  elif [ -n "$(field '.tool_input.actions[0].action')" ]; then
-    # The first answer is an app action (commit, open or merge a pull request,
-    # and so on): a go-ahead that belongs to the owner, never to autopilot.
-    DECISION="$MSG -> left for the owner ($(field '.tool_input.actions[0].action'))"
-    HOW="Do not end the turn with a question, and do not take that step: it needs the owner's go-ahead. Finish the turn without a question and leave it in your final message."
-  else
-    PICK=$(field '.tool_input.actions[0].label')
-    DECISION="$MSG -> ${PICK:-your recommendation}"
-    HOW="Do not end the turn with a question. Act on your recommended answer now ($DECISION), then finish the turn without a question."
-  fi
-  REASON="Autopilot is on ($AP): the owner is away and will not answer. Never decide these yourself, even when they are your recommendation: logins or passwords, payments or purchases, merging, pushing or deploying, publishing or sending anything to other people, deleting data, irreversible production changes, granting permissions. For such a step: skip it, finish the rest and leave the question in your final message. For everything else: $HOW This decision is logged for the owner's morning report."
-  # Answer for the owner only when the decision is on record. If the log cannot
-  # be written, fall through: the owner gets the inbox entry instead.
-  mkdir -p "$DATA" 2>/dev/null
-  if jq -nc --argjson ts "$NOW" --arg time "$(date '+%F %H:%M')" --arg session "$SID" \
-       --arg title "$TITLE" --arg tool "$TOOL" --arg decision "$DECISION" \
-       '{ts:$ts,time:$time,session:$session,title:$title,tool:$tool,decision:$decision}' \
-       2>/dev/null >> "$DATA/decisions.jsonl"; then
-    jq -n --arg r "$REASON" \
-      '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-    exit 0
-  fi
-fi
+# shellcheck source=hooks/autopilot.sh
+. "$ROOT/hooks/autopilot.sh"
+autopilot && exit 0
 
 # --- Needs You -------------------------------------------------------------
 mkdir -p "$INBOX" 2>/dev/null

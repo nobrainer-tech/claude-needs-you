@@ -8,7 +8,7 @@
 
 <p align="center">
   <strong>Every Claude Code session that is waiting for you, in one window.<br>
-  One click opens it. Autopilot answers the rest while you are away.</strong>
+  One click opens it. Autopilot clicks for you while you are away.</strong>
 </p>
 
 <p align="center">
@@ -43,9 +43,11 @@ to look at it.
   open, on top but without taking the focus from what you are typing. After
   that it only updates in place. You close it when you want.
 - **Autopilot, per session or for all of them.** Tick "Autopilot" on a session
-  and it stops asking you: it takes its own recommended answer and keeps going.
-  Or press "Autopilot until 08:00" before you leave. Every decision is logged.
-  Autopilot never approves a plan, a permission, a commit, a merge or a deploy.
+  and it stops waiting for you: it takes its own recommended answer, its plan
+  is approved and its permission prompts are granted. Or press "Autopilot
+  until 08:00" before you leave. Every decision is logged. Merging, pushing,
+  deploying, publishing, sending, deleting, paying and anything with
+  credentials still wait for you.
 
 ## Install
 
@@ -96,8 +98,10 @@ their PATH. `needs-you-window` opens the window by hand.
 | ends a turn with a question (Claude desktop app) | is told to act on its first suggested answer and finish the turn |
 | ends a turn asking for a go-ahead to commit or open a pull request | is told not to take that step; the question is left for you |
 | asks about merging, pushing, deploying, publishing, deleting, paying, logging in or granting a permission | is not answered, even when it recommends that step: the question waits for you, in the window |
-| has a plan waiting for approval | waits for you, in the window |
-| needs a permission, or had a command blocked | waits for you, in the window |
+| has a plan waiting for approval | the plan is approved, with a reminder to leave owner-only steps for you |
+| needs a permission | the permission is granted |
+| had a command blocked | waits for you, in the window |
+| any of the above naming a step only you may take | waits for you, in the window |
 
 The instruction also names what a session must never decide alone: logins and
 passwords, payments, merging, pushing or deploying, publishing or sending
@@ -107,8 +111,14 @@ the question in its final message.
 
 Before you trust it with a night:
 
-- Autopilot tells the model what to do. It does not click for you and it grants
-  no permission, so a session can still stop on something only you can do.
+- Autopilot approves plans and grants permissions through the hook's own
+  decision, the same as your click. It checks the request's text (the
+  question, the plan, the command or tool and its input) for steps only you may
+  take: merge, push, deploy, publish, release, send, email, post, delete,
+  `rm`, force, pay, refund, login, password, credential, secret, token, sudo,
+  commit, pull request, ssh, and a `curl` that sends data, in English and
+  Polish. Those wait for you. It is a word list, so it errs on the side of
+  waiting.
 - The report shows the answer each session was told to take. What the session
   did next is in that session.
 - It picks what the session itself recommended. It does not judge whether the
@@ -204,7 +214,7 @@ Merge it with the hooks you already have. Then run
 
 ```bash
 bash tests/test.sh            # the inbox: 44 checks
-bash tests/autopilot-test.sh  # autopilot: 68 checks
+bash tests/autopilot-test.sh  # autopilot: 76 checks
 bash tests/window-test.sh     # builds the window and renders it to a PNG
 ```
 

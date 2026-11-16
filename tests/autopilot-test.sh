@@ -54,19 +54,38 @@ check ap-owner-only-polish-not-answered "$(printf '%s' "$W" | "$HOOK")" "permiss
 W='{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"ask":"Run the slow tests too?","actions":[{"label":"Yes"}]}}'
 check ap-never-list-first "$(printf '%s' "$W" | "$HOOK" | jq -r .hookSpecificOutput.permissionDecisionReason)" "will not answer. Never decide these yourself" 1
 
-# Autopilot never answers a permission prompt or a plan: those go to the inbox.
-out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{}}' | "$HOOK")
-check ap-permission-not-answered "$out" "permissionDecision" 0
-same ap-permission-in-inbox "$(entry .msg)" "Permission needed: Bash"
-out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{}}' | "$HOOK")
-check ap-plan-not-answered "$out" "permissionDecision" 0
-same ap-plan-in-inbox "$(entry .msg)" "A plan is waiting for your approval"
+# Autopilot grants a permission and approves a plan for the owner, unless the
+# request names a step only the owner may take: that one goes to the inbox.
+out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"npm test"}}' | "$HOOK")
+check ap-permission-allowed "$out" '"behavior":"allow"' 1
+rm -f "$(INBOX)"
+out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}' | "$HOOK")
+check ap-permission-delete-not-allowed "$out" "behavior" 0
+same ap-permission-delete-in-inbox "$(entry .msg)" "Permission needed: Bash"
+out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"git push origin main"}}' | "$HOOK")
+check ap-permission-push-not-allowed "$out" "behavior" 0
+out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"mcp__mail__send_message","tool_input":{"to":"x"}}' | "$HOOK")
+check ap-permission-send-not-allowed "$out" "behavior" 0
+out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{"plan":"Refactor the parser and add tests"}}' | "$HOOK")
+check ap-plan-approved "$out" '"permissionDecision": "allow"' 1
+check ap-plan-reminds-owner-steps "$out" "Still never merge, push, deploy" 1
+rm -f "$(INBOX)"
+out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{"plan":"Fix it, then deploy to production"}}' | "$HOOK")
+check ap-plan-with-deploy-not-approved "$out" "permissionDecision" 0
+same ap-plan-with-deploy-in-inbox "$(entry .msg)" "A plan is waiting for your approval"
+# Without a record there is no approval either.
+chmod 400 "$HOME/.claude/needs-you/decisions.jsonl"
+out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}' | "$HOOK")
+chmod 600 "$HOME/.claude/needs-you/decisions.jsonl"
+check ap-unlogged-permission-not-allowed "$out" "behavior" 0
 
 report=$("$AP" report)
 check ap-report-question "$report" "Which path? -> Path B (Recommended)" 1
 check ap-report-end-of-turn "$report" "Run the slow tests too? -> Yes, run them" 1
 check ap-report-no-owner-only "$report" "Merge the pull request?" 0
 check ap-report-session "$report" "my-app | checkout bug" 1
+check ap-report-permission "$report" "Bash -> allowed (npm test)" 1
+check ap-report-plan "$report" "plan -> approved" 1
 
 # Switching on again keeps the start of the report; off keeps the report.
 since=$(jq -r .since_epoch "$HOME/.claude/needs-you/autopilot.json")
@@ -115,8 +134,8 @@ same ap-session-no-entry "$(entry .msg)" ""
 out=$(CLAUDE_CODE_HOST_SESSION_ID=local_other bash -c "$(declare -f ask); ask 'Unticked session question' | \"\$0\"" "$HOOK")
 check ap-other-session-not-answered "$out" "permissionDecision" 0
 same ap-other-session-inbox "$(entry .msg local_other)" "Unticked session question"
-out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{}}' | "$HOOK")
-check ap-session-plan-not-answered "$out" "permissionDecision" 0
+out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{"plan":"Rename a helper"}}' | "$HOOK")
+check ap-session-plan-approved "$out" '"permissionDecision": "allow"' 1
 check ap-session-report "$("$AP" report)" "Ticked session question -> your recommendation" 1
 "$AP" on 23:59 >/dev/null; "$AP" off >/dev/null
 check ap-global-off-keeps-session "$("$AP" status)" "on for my-app" 1
