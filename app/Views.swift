@@ -75,7 +75,10 @@ final class RowView: Card {
     let meta = (e.file.isEmpty ? [] : [timeLabel(e.ts), e.section, e.project].filter { !$0.isEmpty } + (e.done ? [T.handled] : []))
     let top = label(meta.joined(separator: "  ·  "), font(11, "Medium"), C.muted)
     let title = label(e.title.isEmpty ? "Claude Code" : e.title, font(14, "Bold"), C.ink)
-    let msg = label(e.msg, font(13), C.ink, lines: 6)
+    // Autopilot answers when a request arrives; the one already waiting was
+    // shown before it was ticked, so it says so instead of looking answered.
+    let pending = autopilot && !e.done && !e.file.isEmpty
+    let msg = label(pending ? "\(e.msg)\n\(T.rowApPending)" : e.msg, font(13), C.ink, lines: 7)
     let toggle = Target { onToggle(e, !autopilot) }
     let sw = pill((autopilot ? "● " : "○ ") + T.rowAutopilot, filled: autopilot, size: 11, toggle)
     sw.isEnabled = !e.session.isEmpty && e.session != "none"

@@ -98,6 +98,17 @@ same parallel-tool-leaves-notification "$(entry .done)" "false"
 echo '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"tu-bash"}' | "$HOOK"
 same own-tool-call-handles "$(entry .done)" "true"
 
+# Two prompts with the same text from two tool calls are two requests: the
+# second replaces the first, so finishing the first leaves the second waiting.
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"tu-1"}' | "$HOOK"; sleep 1
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"tu-2"}' | "$HOOK"; sleep 1
+same second-prompt-replaces-first "$(entry .tool_use_id)" "tu-2"
+echo '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"tu-1"}' | "$HOOK"
+same first-call-leaves-second "$(entry .done)" "false"
+: > "$FAKE_LOG"
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"tu-2"}' | "$HOOK"; sleep 1
+expect same-call-again-counts-once "WINDOW" 0
+
 # --- Without the window ------------------------------------------------------
 
 setup banner

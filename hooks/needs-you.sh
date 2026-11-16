@@ -141,10 +141,12 @@ mkdir -p "$INBOX" 2>/dev/null
 # ASCII is never cut in half, whatever the locale of the hook's environment.
 MSG=$(jq -rn --arg m "$MSG" '$m | gsub("[\r\n\t]+"; " ") | .[0:180]')
 
-# The same message from the same session, still waiting, counts once per
-# 2 minutes. Once it is handled, the same message again is a new request.
-if jq -e --arg m "$MSG" --argjson now "$NOW" \
-     '.done != true and .msg == $m and ($now - .ts) < 120' "$ENTRY" >/dev/null 2>&1; then
+# The same request from the same session, still waiting, counts once per
+# 2 minutes. Once it is handled, the same message again is a new request; so is
+# the same message from another tool call (two Bash prompts in a row).
+if jq -e --arg m "$MSG" --arg tu "$TOOL_USE_ID" --argjson now "$NOW" \
+     '.done != true and .msg == $m and ($now - .ts) < 120
+      and ($tu == "" or (.tool_use_id // "") == "" or .tool_use_id == $tu)' "$ENTRY" >/dev/null 2>&1; then
   exit 0
 fi
 

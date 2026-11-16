@@ -47,7 +47,9 @@ to look at it.
   is approved and its permission prompts are granted. Or press "Autopilot
   until 08:00" before you leave. Every decision is logged. Merging, pushing,
   deploying, publishing, sending, deleting, paying and anything with
-  credentials still wait for you.
+  credentials still wait for you. Autopilot answers from the next request on:
+  a request that already waits when you tick it stays in the window, marked,
+  until you open the session and answer it.
 
 ## Install
 
@@ -142,7 +144,7 @@ Every text in the window and the hook can be translated:
 `NEEDS_YOU_TITLE` (`Claude needs you`), `NEEDS_YOU_WAITING_COUNT` (`waiting`),
 `NEEDS_YOU_HANDLED` (`handled`), `NEEDS_YOU_EMPTY`, `NEEDS_YOU_HINT`,
 `NEEDS_YOU_CLEAR` (`Clear handled`), `NEEDS_YOU_ROW_AUTOPILOT` (`Autopilot`),
-`NEEDS_YOU_ROW_ON_AUTOPILOT`,
+`NEEDS_YOU_ROW_ON_AUTOPILOT`, `NEEDS_YOU_ROW_AP_PENDING`,
 `NEEDS_YOU_AP_START` (`Autopilot until`), `NEEDS_YOU_AP_STOP`,
 `NEEDS_YOU_AP_ON`, `NEEDS_YOU_AP_OFF`, `NEEDS_YOU_PLAN`,
 `NEEDS_YOU_PERMISSION`, `NEEDS_YOU_BLOCKED`, `NEEDS_YOU_WAITING`, and for the
