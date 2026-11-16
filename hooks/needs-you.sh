@@ -38,6 +38,13 @@ $(printf '%s' "$INPUT" | jq -r '[.hook_event_name, .tool_name, .agent_id, .sessi
   | map(. // "" | tostring | gsub("[\u001f\n]"; " ")) | join("\u001f")' 2>/dev/null)
 EOF
 
+# A session started (also when the desktop app opens): look for sessions that
+# already wait, in the background.
+if [ "$EVENT" = SessionStart ]; then
+  ( "$ROOT/bin/needs-you-scan" ) </dev/null >/dev/null 2>&1 &
+  exit 0
+fi
+
 # Which session is this? The desktop app sets CLAUDE_CODE_HOST_SESSION_ID; a
 # terminal session has only its own session id.
 APP_ID="${CLAUDE_CODE_HOST_SESSION_ID:-}"
@@ -98,39 +105,10 @@ case "$EVENT:$TOOL" in
 esac
 [ -n "$MSG" ] || MSG="${NEEDS_YOU_WAITING:-A session is waiting for you}"
 
-# Title, sidebar section and project of a desktop-app session. Each account
-# keeps its own copy of the session file; the newest one is the live session.
-APP="$HOME/Library/Application Support/Claude"
-FILE=""
-if [ -n "$APP_ID" ]; then
-  FILE=$(find "$APP/claude-code-sessions" -name "$APP_ID.json" -type f -exec stat -f '%m %N' {} + 2>/dev/null \
-    | sort -rn | head -1 | cut -d' ' -f2-)
-fi
-TITLE=""
-[ -n "$FILE" ] && TITLE=$(jq -r '.title // empty' "$FILE" 2>/dev/null)
-# The sidebar section: per account scope (the two folders above the session
-# file), "code:<session id>" -> group id -> group name. Any scope will do.
-SECTION=""
-if [ -n "$FILE" ] && [ -f "$APP/claude_desktop_config.json" ]; then
-  SCOPE=$(printf '%s' "$FILE" | awk -F/ '{print $(NF-2) "/" $(NF-1)}')
-  SECTION=$(jq -r --arg s "$SCOPE" --arg k "code:$APP_ID" '
-    (.preferences.epitaxyPrefs["dframe-group-scopes"] // {}) as $all
-    | ([$all[$s] // empty] + [$all[]]) | map(. as $x | ($x.assignments[$k] // null) as $g
-        | select($g) | ($x.groups[]? | select(.id == $g) | .name)) | .[0] // empty' \
-    "$APP/claude_desktop_config.json" 2>/dev/null)
-fi
-# The project: the repository the session works in, else its folder.
-CWD=""
-[ -n "$FILE" ] && CWD=$(jq -r '.cwd // empty' "$FILE" 2>/dev/null)
-[ -n "$CWD" ] || CWD=$(field .cwd)
-PROJECT=""
-if [ -n "$CWD" ]; then
-  REPO=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)
-  PROJECT=$(basename "${REPO:-$CWD}")
-fi
-[ -n "$TITLE" ] || TITLE="${PROJECT:-Claude Code}"
-LINK=""
-[ -n "$APP_ID" ] && LINK="claude://claude.ai/epitaxy/$APP_ID"
+# Title, sidebar section, project and link of the session.
+# shellcheck source=hooks/session-info.sh
+. "$ROOT/hooks/session-info.sh"
+session_info "$APP_ID" "$(field .cwd)"
 
 # --- Autopilot -------------------------------------------------------------
 # shellcheck source=hooks/autopilot.sh

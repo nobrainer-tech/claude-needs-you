@@ -40,6 +40,9 @@ need this; Claude Code's own notifications are enough.
   sidebar section, its project, its title and the question. A newer question
   from the same session replaces the older one.
 - **One click opens the session** in the Claude desktop app.
+- **Nothing slips through a restart.** Open the Claude app the next morning and
+  the window lists every session that was still waiting for you when you
+  closed it.
 - **Handled ones grey out and drop to the bottom** as soon as you answer, so the
   top of the list is always what still waits. They disappear after a day, or
   when you click "Clear handled".
@@ -174,6 +177,12 @@ fallback dialog `NEEDS_YOU_OPEN` and `NEEDS_YOU_LATER`.
   `PermissionRequest` and `PermissionDenied`. It writes one JSON file per
   session to `~/.claude/needs-you/inbox/`. The same request from one session
   counts once per two minutes.
+- Sessions that already wait are found too: a question you left open before
+  closing the Claude desktop app, or one in a session that has not run since.
+  [`bin/needs-you-scan`](bin/needs-you-scan) reads the end of each recent
+  session's transcript and the app's own "was waiting when you quit" mark, and
+  lists the ones still open with the time they asked. It runs on `SessionStart`,
+  when the window opens and every 5 minutes while it is open.
 - `UserPromptSubmit`, `PostToolUse` and `SessionEnd` mark a session's entry
   handled: you wrote to it, its own tool call finished, or it ended. The end-of-turn tool and subagents do
   not count.
@@ -233,6 +242,7 @@ Merge it with the hooks you already have. Then run
 ```bash
 bash tests/test.sh            # the inbox: 61 checks
 bash tests/autopilot-test.sh  # autopilot: 77 checks
+bash tests/scan-test.sh       # sessions that already wait: 24 checks
 bash tests/window-test.sh     # builds the window and renders it to a PNG
 ```
 

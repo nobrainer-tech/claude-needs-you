@@ -1,0 +1,121 @@
+#!/bin/bash
+# needs-you-scan: put the sessions that already wait for you in the inbox.
+#
+# The hook sees a request only while its session runs. A question asked before
+# the Claude desktop app was closed, or in a session that has not started since,
+# waits in the sidebar but not in the window. This reads the end of each recent
+# desktop-app session's transcript: when its last question (an end-of-turn
+# question, AskUserQuestion or a plan to approve) came after your last message,
+# it writes an inbox entry with the time it was asked. So does a session that
+# was waiting for a permission or an answer when the app was closed. An entry that is as new
+# or newer (also a handled one) is left alone. Sessions idle for more than a day
+# are skipped, as the window drops entries after a day.
+#
+#   needs-you-scan            scan, and open the window when a new entry appeared
+#   needs-you-scan --no-open  scan only (the window runs it like this)
+#
+# Runs on SessionStart and from the window. Prints the number of new entries.
+# https://github.com/nobrainer-tech/claude-needs-you
+set -u
+PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+command -v jq >/dev/null 2>&1 || exit 0
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=hooks/settings.sh
+. "$ROOT/hooks/settings.sh"
+# shellcheck source=hooks/session-info.sh
+. "$ROOT/hooks/session-info.sh"
+INBOX="$HOME/.claude/needs-you/inbox"
+PROJECTS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
+PLAN="${NEEDS_YOU_PLAN:-A plan is waiting for your approval}"
+WAITING="${NEEDS_YOU_WAITING:-A session is waiting for you}"
+NOW=$(date +%s)
+# The end of a transcript is enough to find its last question and answer.
+TAIL_BYTES="${NEEDS_YOU_SCAN_BYTES:-3000000}"
+
+# The last open question of a transcript (read on stdin) as {ts,msg,id}, or
+# nothing. Subagent lines do not count. A question you answered with a tool
+# result (AskUserQuestion, a plan) is closed; any message of yours after it too.
+LAST_OPEN='
+  [inputs | fromjson? | select(type == "object" and .isSidechain != true)] as $e
+  | ([$e[] | select(.type == "user" and .isMeta != true
+        and ((.message.content | type) == "string"
+             or ([.message.content[]? | select(type == "object" and .type == "text")] | length > 0)))
+      | .timestamp // empty] | max // "") as $answered_at
+  | [$e[] | select(.type == "user") | .message.content[]?
+      | select(type == "object" and .type == "tool_result")] as $all_results
+  | [$all_results[] | .tool_use_id] as $results
+  | [$all_results[] | select(.is_error == true) | .tool_use_id] as $refused
+  | [$e[] | select(.type == "assistant") | .timestamp as $t | .message.content[]?
+      | select(type == "object" and .type == "tool_use")
+      # An end-of-turn question counts unless it was refused (autopilot told the
+      # session to go on without it); a turn that ends without one closes it.
+      | if .name == "mcp__ccd_turn__wrap_up" then
+          (if (.input.ask // "") != "" and (.id as $i | $refused | index($i) | not)
+           then {t: $t, msg: .input.ask, id: .id, turn_end: true} else {t: $t, closed: true} end)
+        elif .name == "AskUserQuestion" then {t: $t, msg: (.input.questions[0].question // ""), id: .id}
+        elif .name == "ExitPlanMode" then {t: $t, msg: $plan, id: .id}
+        else empty end] | last
+  | select(. != null and .closed != true and .t != null and .t > $answered_at
+           and (.turn_end or (.id as $i | $results | index($i) | not)))
+  | {ts: (.t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601), msg: (.msg | gsub("[\r\n\t]+"; " ") | .[0:180]), id}'
+
+CLEARED="$HOME/.claude/needs-you/cleared"   # <session>: time of the request you cleared
+
+# Known already: the hook wrote it, you handled it, something newer came, or you
+# cleared it from the window (the window leaves its time in cleared/).
+known() {  # entry file, session, request time
+  [ -f "$1" ] && jq -e --argjson ts "$3" '(.ts // 0) >= $ts' "$1" >/dev/null 2>&1 && return 0
+  [ -f "$CLEARED/$2" ] && [ "$(cat "$CLEARED/$2" 2>/dev/null)" -ge "$3" ] 2>/dev/null
+}
+
+lock_entry() {  # the same lock folder as the hook and the window
+  local _
+  for _ in $(seq 1 40); do
+    mkdir "$1.lock" 2>/dev/null && return 0
+    [ -n "$(find "$1.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$1.lock" 2>/dev/null
+    sleep 0.05
+  done
+  return 1
+}
+
+added=0
+# The newest copy of each session file changed in the last day.
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  id=$(basename "$file" .json)
+  case "$id" in local_*) ;; *) continue ;; esac
+  jq -e '.isArchived != true' "$file" >/dev/null 2>&1 || continue
+  cli=$(jq -r '.cliSessionId // empty' "$file" 2>/dev/null)
+  open=""
+  transcript=""
+  [ -n "$cli" ] && transcript=$(find "$PROJECTS" -maxdepth 2 -name "$cli.jsonl" -type f 2>/dev/null | head -1)
+  [ -n "$transcript" ] && open=$(tail -c "$TAIL_BYTES" "$transcript" | jq -nRc --arg plan "$PLAN" "$LAST_OPEN" 2>/dev/null)
+  # The app was closed while the session waited for a permission or an answer.
+  [ -n "$open" ] || open=$(jq -c --arg msg "$WAITING" '
+    select(.interruptedAwaitingPerson == true and (.interruptedByQuitAt | type) == "number")
+    | {ts: (.interruptedByQuitAt / 1000 | floor), msg: $msg, id: ""}' "$file" 2>/dev/null)
+  [ -n "$open" ] || continue
+  ts=$(jq -r .ts <<<"$open")
+  [ $((NOW - ts)) -lt 86400 ] || continue
+  entry="$INBOX/$id.json"
+  known "$entry" "$id" "$ts" && continue
+  session_info "$id"
+  mkdir -p "$INBOX" 2>/dev/null
+  lock_entry "$entry" || continue
+  # Checked again under the lock: a hook may have written a newer request.
+  if known "$entry" "$id" "$ts"; then rmdir "$entry.lock" 2>/dev/null; continue; fi
+  jq -c --arg session "$id" --arg title "$TITLE" --arg section "$SECTION" \
+     --arg project "$PROJECT" --arg link "$LINK" \
+     '{ts, session: $session, title: $title, section: $section, project: $project, msg, link: $link,
+       done: false} + (if .id != "" then {tool_use_id: .id} else {} end)' <<<"$open" > "$entry.tmp.$$" 2>/dev/null \
+    && mv "$entry.tmp.$$" "$entry" && added=$((added + 1))
+  rm -f "$entry.tmp.$$"; rmdir "$entry.lock" 2>/dev/null
+done < <(find "$APP/claude-code-sessions" -name 'local_*.json' -type f -mtime -1 -exec stat -f '%m %N' {} + 2>/dev/null \
+           | sort -rn | cut -d' ' -f2- | awk -F/ '!seen[$NF]++')
+
+echo "$added"
+if [ "$added" -gt 0 ] && [ "${1:-}" != --no-open ] && [ "${NEEDS_YOU_WINDOW:-1}" != 0 ]; then
+  WINDOW="${NEEDS_YOU_WINDOW_CMD:-$ROOT/bin/needs-you-window}"
+  "$WINDOW" --check && "$WINDOW" </dev/null >/dev/null 2>&1
+fi
+exit 0

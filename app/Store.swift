@@ -96,10 +96,16 @@ func withEntryLock(_ file: String, _ body: () -> Void) {
   }
 }
 
-// Remove a handled entry, unless the session has asked again since.
+// Remove a handled entry, unless the session has asked again since. The time of
+// the request stays in ../cleared/<session>, so needs-you-scan does not bring a
+// question you cleared back.
 func removeHandled(_ e: Entry) {
   withEntryLock(e.file) {
     guard let j = readJSON(e.file), (j["done"] as? Bool) == true, num(j["ts"]) == e.ts else { return }
+    let cleared = ((inboxDir as NSString).deletingLastPathComponent as NSString).appendingPathComponent("cleared")
+    try? FileManager.default.createDirectory(atPath: cleared, withIntermediateDirectories: true)
+    try? String(Int(e.ts)).write(toFile: (cleared as NSString).appendingPathComponent(e.session),
+                                 atomically: true, encoding: .utf8)
     try? FileManager.default.removeItem(atPath: e.file)
   }
 }
@@ -121,6 +127,21 @@ func runAutopilot(_ arguments: [String]) {
   p.arguments = arguments
   try? p.run()
   p.waitUntilExit()
+}
+
+// Sessions that already wait (asked before the app was closed, or in a session
+// that has not run since) come in through bin/needs-you-scan, next to
+// nb-autopilot. It runs in the background; refresh() shows what it wrote.
+func runScan() {
+  guard !autopilotCmd.isEmpty else { return }
+  let scan = ((autopilotCmd as NSString).deletingLastPathComponent as NSString).appendingPathComponent("needs-you-scan")
+  guard FileManager.default.isExecutableFile(atPath: scan) else { return }
+  let p = Process()
+  p.executableURL = URL(fileURLWithPath: scan)
+  p.arguments = ["--no-open"]
+  p.standardOutput = FileHandle.nullDevice
+  p.standardError = FileHandle.nullDevice
+  try? p.run()
 }
 
 func timeLabel(_ ts: TimeInterval) -> String {

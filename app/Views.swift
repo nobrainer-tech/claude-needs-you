@@ -280,6 +280,7 @@ final class Inbox: NSObject {
 final class AppDelegate: NSObject, NSApplicationDelegate {
   var inbox: Inbox!
   var timer: Timer?
+  var scanTimer: Timer?
   func applicationDidFinishLaunching(_ n: Notification) {
     if let icon = logo("logo-512.png") { NSApp.applicationIconImage = icon }
     inbox = Inbox()
@@ -287,6 +288,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Shown on top, but the app you are typing in keeps the focus.
     inbox.window.orderFrontRegardless()
     timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.inbox.refresh() }
+    runScan()
+    scanTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in runScan() }
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
   func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows: Bool) -> Bool {
