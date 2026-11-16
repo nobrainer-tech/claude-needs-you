@@ -42,16 +42,41 @@ LAST_OPEN='
              or ([.message.content[]? | select(type == "object" and .type == "text")] | length > 0)))
       | .timestamp // empty] | max // "") as $answered_at
   | [$e[] | select(.type == "user") | .message.content[]?
-      | select(type == "object" and .type == "tool_result") | .tool_use_id] as $results
+      | select(type == "object" and .type == "tool_result")] as $all_results
+  | [$all_results[] | .tool_use_id] as $results
+  | [$all_results[] | select(.is_error == true) | .tool_use_id] as $refused
   | [$e[] | select(.type == "assistant") | .timestamp as $t | .message.content[]?
       | select(type == "object" and .type == "tool_use")
-      | if .name == "mcp__ccd_turn__wrap_up" and ((.input.ask // "") != "") then {t: $t, msg: .input.ask, id: .id, turn_end: true}
+      # An end-of-turn question counts unless it was refused (autopilot told the
+      # session to go on without it); a turn that ends without one closes it.
+      | if .name == "mcp__ccd_turn__wrap_up" then
+          (if (.input.ask // "") != "" and (.id as $i | $refused | index($i) | not)
+           then {t: $t, msg: .input.ask, id: .id, turn_end: true} else {t: $t, closed: true} end)
         elif .name == "AskUserQuestion" then {t: $t, msg: (.input.questions[0].question // ""), id: .id}
         elif .name == "ExitPlanMode" then {t: $t, msg: $plan, id: .id}
         else empty end] | last
-  | select(. != null and .t != null and .t > $answered_at
+  | select(. != null and .closed != true and .t != null and .t > $answered_at
            and (.turn_end or (.id as $i | $results | index($i) | not)))
   | {ts: (.t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601), msg: (.msg | gsub("[\r\n\t]+"; " ") | .[0:180]), id}'
+
+CLEARED="$HOME/.claude/needs-you/cleared"   # <session>: time of the request you cleared
+
+# Known already: the hook wrote it, you handled it, something newer came, or you
+# cleared it from the window (the window leaves its time in cleared/).
+known() {  # entry file, session, request time
+  [ -f "$1" ] && jq -e --argjson ts "$3" '(.ts // 0) >= $ts' "$1" >/dev/null 2>&1 && return 0
+  [ -f "$CLEARED/$2" ] && [ "$(cat "$CLEARED/$2" 2>/dev/null)" -ge "$3" ] 2>/dev/null
+}
+
+lock_entry() {  # the same lock folder as the hook and the window
+  local _
+  for _ in $(seq 1 40); do
+    mkdir "$1.lock" 2>/dev/null && return 0
+    [ -n "$(find "$1.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$1.lock" 2>/dev/null
+    sleep 0.05
+  done
+  return 1
+}
 
 added=0
 # The newest copy of each session file changed in the last day.
@@ -73,13 +98,12 @@ while IFS= read -r file; do
   ts=$(jq -r .ts <<<"$open")
   [ $((NOW - ts)) -lt 86400 ] || continue
   entry="$INBOX/$id.json"
-  # Known already: the hook wrote it, or you handled it, or something newer.
-  if [ -f "$entry" ] && jq -e --argjson ts "$ts" '(.ts // 0) >= $ts' "$entry" >/dev/null 2>&1; then
-    continue
-  fi
+  known "$entry" "$id" "$ts" && continue
   session_info "$id"
   mkdir -p "$INBOX" 2>/dev/null
-  mkdir "$entry.lock" 2>/dev/null || continue
+  lock_entry "$entry" || continue
+  # Checked again under the lock: a hook may have written a newer request.
+  if known "$entry" "$id" "$ts"; then rmdir "$entry.lock" 2>/dev/null; continue; fi
   jq -c --arg session "$id" --arg title "$TITLE" --arg section "$SECTION" \
      --arg project "$PROJECT" --arg link "$LINK" \
      '{ts, session: $session, title: $title, section: $section, project: $project, msg, link: $link,

@@ -96,10 +96,16 @@ func withEntryLock(_ file: String, _ body: () -> Void) {
   }
 }
 
-// Remove a handled entry, unless the session has asked again since.
+// Remove a handled entry, unless the session has asked again since. The time of
+// the request stays in ../cleared/<session>, so needs-you-scan does not bring a
+// question you cleared back.
 func removeHandled(_ e: Entry) {
   withEntryLock(e.file) {
     guard let j = readJSON(e.file), (j["done"] as? Bool) == true, num(j["ts"]) == e.ts else { return }
+    let cleared = ((inboxDir as NSString).deletingLastPathComponent as NSString).appendingPathComponent("cleared")
+    try? FileManager.default.createDirectory(atPath: cleared, withIntermediateDirectories: true)
+    try? String(Int(e.ts)).write(toFile: (cleared as NSString).appendingPathComponent(e.session),
+                                 atomically: true, encoding: .utf8)
     try? FileManager.default.removeItem(atPath: e.file)
   }
 }
