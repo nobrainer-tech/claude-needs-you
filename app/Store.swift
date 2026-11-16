@@ -55,7 +55,10 @@ func loadEntries() -> [Entry] {
     let path = (inboxDir as NSString).appendingPathComponent(name)
     guard let j = readJSON(path) else { continue }
     let ts = num(j["ts"])
-    if now - ts > dayAgo { try? fm.removeItem(atPath: path); continue }
+    if now - ts > dayAgo {
+      withEntryLock(path) { if num(readJSON(path)?["ts"]) == ts { try? fm.removeItem(atPath: path) } }
+      continue
+    }
     out.append(Entry(file: path, session: str(j["session"]), title: str(j["title"]),
                      section: str(j["section"]), project: str(j["project"]), msg: str(j["msg"]),
                      link: str(j["link"]), ts: ts, doneTs: num(j["done_ts"]),
@@ -72,23 +75,41 @@ func loadAutopilot() -> Autopilot {
   guard let j = readJSON(autopilotFile) else { return Autopilot(until: nil, sessions: []) }
   let now = Date().timeIntervalSince1970
   let u = num(j["until_epoch"])
+  // A session is on while its last period has no end.
   let all = (j["sessions"] as? [String: [String: Any]]) ?? [:]
-  let sessions = Set(all.filter { $0.value["off_epoch"] == nil }.keys)
+  let sessions = Set(all.filter { (($0.value["periods"] as? [[Any]])?.last?.last).map { $0 is NSNull } ?? false }.keys)
   return Autopilot(until: u > now && u - now <= dayAgo ? str(j["until"]) : nil, sessions: sessions)
+}
+
+// Every writer of an entry (the hook and this window) holds its lock folder, so
+// a check and the write that follows it see the same request. A lock older than
+// a minute belongs to a writer that crashed.
+func withEntryLock(_ file: String, _ body: () -> Void) {
+  let lock = file + ".lock"
+  for _ in 0..<40 {
+    if mkdir(lock, 0o700) == 0 { body(); rmdir(lock); return }
+    if let m = (try? FileManager.default.attributesOfItem(atPath: lock))?[.modificationDate] as? Date,
+       Date().timeIntervalSince(m) > 60 { rmdir(lock) }
+    usleep(50_000)
+  }
 }
 
 // Remove a handled entry, unless the session has asked again since.
 func removeHandled(_ e: Entry) {
-  guard let j = readJSON(e.file), (j["done"] as? Bool) == true, num(j["ts"]) == e.ts else { return }
-  try? FileManager.default.removeItem(atPath: e.file)
+  withEntryLock(e.file) {
+    guard let j = readJSON(e.file), (j["done"] as? Bool) == true, num(j["ts"]) == e.ts else { return }
+    try? FileManager.default.removeItem(atPath: e.file)
+  }
 }
 
+// Mark the request that was on screen handled; a newer one from the session stays.
 func markDone(_ e: Entry) {
-  // Only the request that was on screen: a newer one from the session stays.
-  guard var j = readJSON(e.file), (j["done"] as? Bool) != true, num(j["ts"]) == e.ts else { return }
-  j["done"] = true
-  j["done_ts"] = Int(Date().timeIntervalSince1970)
-  writeJSON(j, e.file)
+  withEntryLock(e.file) {
+    guard var j = readJSON(e.file), (j["done"] as? Bool) != true, num(j["ts"]) == e.ts else { return }
+    j["done"] = true
+    j["done_ts"] = Int(Date().timeIntervalSince1970)
+    writeJSON(j, e.file)
+  }
 }
 
 func runAutopilot(_ arguments: [String]) {

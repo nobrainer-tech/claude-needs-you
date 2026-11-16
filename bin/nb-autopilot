@@ -89,30 +89,34 @@ case "${1:-status}" in
       exit 2
     fi
     if [ "$2" = on ]; then
-      update --arg id "$sid" --arg t "${4:-}" --argjson n "$now" \
-        '.sessions[$id] = {title: $t, since_epoch: $n}' || cannot_write
+      # Each tick opens a period and each untick closes it; all periods are kept,
+      # so the morning report has every decision taken for this session.
+      update --arg id "$sid" --arg t "${4:-}" --argjson n "$now" '
+        .sessions[$id] = ((.sessions[$id] // {}) | .title = (if $t != "" then $t else (.title // "") end)
+          | .periods = ((.periods // []) | if length > 0 and .[-1][1] == null then . else . + [[$n, null]] end))' \
+        || cannot_write
       echo "Autopilot ON for ${4:-$sid}"
     else
-      # Kept with its end time, so the morning report still has its decisions.
-      update --arg id "$sid" --argjson n "$now" \
-        'if .sessions[$id] then .sessions[$id].off_epoch = $n else . end' || cannot_write
+      update --arg id "$sid" --argjson n "$now" '
+        if .sessions[$id] then .sessions[$id].periods |= ((. // [])
+          | if length > 0 and .[-1][1] == null then .[-1][1] = $n else . end) else . end' || cannot_write
       echo "Autopilot OFF for ${4:-$sid}"
     fi
     ;;
   status)
     if active; then echo "Autopilot ON until $(saved .until)"; else echo "Autopilot OFF"; fi
-    jq -r '(.sessions // {}) | to_entries[] | select(.value.off_epoch == null)
+    jq -r '(.sessions // {}) | to_entries[] | select(.value | ((.periods // []) | length > 0 and .[-1][1] == null))
       | "  on for \(.value.title // .key) (\(.key))"' "$STATE_FILE" 2>/dev/null
     ;;
   report)
     # Since autopilot for all sessions was last switched on, plus the decisions
     # of each session that had its own autopilot, while it was ticked.
     since=$(saved .since_epoch)
-    own=$(jq -c '(.sessions // {}) | map_values([.since_epoch // 0, .off_epoch // 9999999999])' "$STATE_FILE" 2>/dev/null)
+    own=$(jq -c '(.sessions // {}) | map_values(.periods // [])' "$STATE_FILE" 2>/dev/null)
     [ -n "$own" ] || own='{}'
     lines=""
     [ -s "$LOG" ] && lines=$(jq -r --argjson s "${since:-$((now + 1))}" --argjson own "$own" \
-      'select(.ts >= $s or ($own[.session] as $r | $r != null and .ts >= $r[0] and .ts <= $r[1]))
+      'select(.ts as $t | $t >= $s or any(($own[.session] // [])[]; $t >= .[0] and $t <= (.[1] // $t)))
        | "\(.time)  \(.title)  \(.decision)"' "$LOG" 2>/dev/null)
     if [ -n "$lines" ]; then printf '%s\n' "$lines"; else echo "No autopilot decisions."; fi
     ;;

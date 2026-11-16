@@ -124,6 +124,12 @@ check ap-session-off "$("$AP" session off local_test)" "Autopilot OFF for local_
 check ap-session-off-asks-again "$(fire "Unticked again")" "permissionDecision" 0
 check ap-session-off-status "$("$AP" status)" "on for my-app" 0
 check ap-report-after-untick "$("$AP" report)" "Ticked session question -> your recommendation" 1
+# Ticking it again opens a new period; decisions of the first one stay in the report.
+"$AP" session on local_test >/dev/null
+check ap-retick-on "$(fire "Ticked again question")" '"permissionDecision": "deny"' 1
+check ap-report-keeps-first-period "$("$AP" report)" "Ticked session question -> your recommendation" 1
+check ap-report-has-second-period "$("$AP" report)" "Ticked again question -> your recommendation" 1
+"$AP" session off local_test >/dev/null
 
 # Writers that race keep both changes.
 for i in 1 2 3 4 5 6; do "$AP" session on "local_r$i" >/dev/null & done; wait

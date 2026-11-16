@@ -41,6 +41,20 @@ SID=$(printf '%s' "${APP_ID:-$CLI_ID}" | tr -c 'A-Za-z0-9_.-' '_')
 SID="${SID:-none}"
 ENTRY="$INBOX/$SID.json"
 
+# Every writer of an entry (this hook and the window) holds its lock folder, so
+# a check and the write that follows it see the same request. A lock older than
+# a minute belongs to a writer that crashed.
+lock_entry() {
+  local _
+  for _ in $(seq 1 40); do
+    mkdir "$ENTRY.lock" 2>/dev/null && return 0
+    [ -n "$(find "$ENTRY.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$ENTRY.lock" 2>/dev/null
+    sleep 0.05
+  done
+  return 1
+}
+unlock_entry() { rmdir "$ENTRY.lock" 2>/dev/null; }
+
 # The session moved on: you wrote to it, or one of its own tool calls finished
 # (an answered question, an approved plan or permission). Its entry is handled.
 # The end-of-turn tool returns before you answer, so it does not count; nor
@@ -50,12 +64,12 @@ case "$EVENT" in
     [ "$TOOL" = mcp__ccd_turn__wrap_up ] && exit 0
     [ -n "$AGENT" ] && exit 0
     [ -f "$ENTRY" ] || exit 0
-    TS=$(jq -r 'select(.done != true) | .ts' "$ENTRY" 2>/dev/null)
-    [ -n "$TS" ] || exit 0
-    jq -c --argjson n "$(date +%s)" '.done = true | .done_ts = $n' "$ENTRY" > "$ENTRY.tmp.$$" 2>/dev/null &&
-      # A newer request may have replaced the entry meanwhile: leave that one alone.
-      [ "$(jq -r .ts "$ENTRY" 2>/dev/null)" = "$TS" ] && mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null
+    jq -e '.done != true' "$ENTRY" >/dev/null 2>&1 || exit 0
+    lock_entry || exit 0
+    jq -c --argjson n "$(date +%s)" 'if .done != true then .done = true | .done_ts = $n else . end' \
+      "$ENTRY" > "$ENTRY.tmp.$$" 2>/dev/null && mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null
     rm -f "$ENTRY.tmp.$$" 2>/dev/null
+    unlock_entry
     exit 0 ;;
 esac
 
@@ -111,7 +125,7 @@ LINK=""
 # away is not a real setting (nb-autopilot never writes one), so it counts as off.
 NOW=$(date +%s)
 AP=$(jq -r --arg id "$SID" --argjson now "$NOW" '
-  if (.sessions // {})[$id] and .sessions[$id].off_epoch == null then "this session"
+  if ((.sessions // {})[$id] // {}) | ((.periods // []) | length > 0 and .[-1][1] == null) then "this session"
   elif (.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400 then "until \(.until)"
   else empty end' "$DATA/autopilot.json" 2>/dev/null)
 # A question about a step only the owner may take is never answered, even with
@@ -176,7 +190,8 @@ fi
 jq -nc --argjson ts "$NOW" --arg session "$SID" --arg title "$TITLE" --arg section "$SECTION" \
   --arg project "$PROJECT" --arg msg "$MSG" --arg link "$LINK" \
   '{ts:$ts,session:$session,title:$title,section:$section,project:$project,msg:$msg,link:$link,done:false}' \
-  > "$ENTRY.tmp.$$" 2>/dev/null && mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null
+  > "$ENTRY.tmp.$$" 2>/dev/null && lock_entry && { mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null; unlock_entry; }
+rm -f "$ENTRY.tmp.$$" 2>/dev/null
 
 # Away from the Mac (no keyboard or mouse input for NEEDS_YOU_IDLE_MINUTES,
 # default 10): run your own command too, for example a message to your phone.

@@ -58,6 +58,14 @@ echo '{"ts":1,"session":"local_test","msg":"old","done":false}' > "$(INBOX)"
 event PostToolUse Bash
 same handles-current "$(entry .done)" "true"
 
+# Writers take turns on an entry: while another writer holds its lock, a new
+# request waits and is written after the lock is released, never lost.
+mkdir "$(INBOX).lock"
+fire "Question while locked" & sleep 0.6
+same locked-entry-not-written-yet "$(entry .msg)" "old"
+rmdir "$(INBOX).lock"; wait; sleep 0.3
+same written-after-unlock "$(entry .msg)" "Question while locked"
+
 # Another session's tool call leaves this entry alone.
 fire "Question D"; sleep 1
 CLAUDE_CODE_HOST_SESSION_ID=local_other event PostToolUse Bash

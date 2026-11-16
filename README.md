@@ -202,8 +202,8 @@ Merge it with the hooks you already have. Then run
 ## Tests
 
 ```bash
-bash tests/test.sh            # the inbox: 42 checks
-bash tests/autopilot-test.sh  # autopilot: 63 checks
+bash tests/test.sh            # the inbox: 44 checks
+bash tests/autopilot-test.sh  # autopilot: 66 checks
 bash tests/window-test.sh     # builds the window and renders it to a PNG
 ```
 
