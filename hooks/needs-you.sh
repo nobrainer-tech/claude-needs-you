@@ -29,10 +29,10 @@ INBOX="$DATA/inbox"
 
 INPUT=$(cat)
 field() { printf '%s' "$INPUT" | jq -r "$1 // empty" 2>/dev/null; }
-# One jq call for the four fields. The unit separator is not whitespace, so an
+# One jq call for the five fields. The unit separator is not whitespace, so an
 # empty field cannot shift the others.
-IFS=$'\037' read -r EVENT TOOL AGENT CLI_ID <<EOF
-$(printf '%s' "$INPUT" | jq -r '[.hook_event_name, .tool_name, .agent_id, .session_id]
+IFS=$'\037' read -r EVENT TOOL AGENT CLI_ID TOOL_USE_ID <<EOF
+$(printf '%s' "$INPUT" | jq -r '[.hook_event_name, .tool_name, .agent_id, .session_id, .tool_use_id]
   | map(. // "" | tostring | gsub("[\u001f\n]"; " ")) | join("\u001f")' 2>/dev/null)
 EOF
 
@@ -61,7 +61,8 @@ unlock_entry() { rmdir "$ENTRY.lock" 2>/dev/null; }
 # answered question, an approved plan or permission), or it ended. Its entry is
 # handled.
 # The end-of-turn tool returns before you answer, so it does not count; nor
-# does a subagent's tool call.
+# does a subagent's tool call. Tools run in parallel, so a tool call handles a
+# request only when it is the call that request waits on (same tool_use_id).
 case "$EVENT" in
   UserPromptSubmit|PostToolUse|SessionEnd)
     [ "$TOOL" = mcp__ccd_turn__wrap_up ] && exit 0
@@ -71,6 +72,10 @@ case "$EVENT" in
     # request written while we waited for it stays waiting.
     TS=$(jq -r 'select(.done != true) | .ts' "$ENTRY" 2>/dev/null)
     [ -n "$TS" ] || exit 0
+    if [ "$EVENT" = PostToolUse ]; then
+      WAITS_ON=$(jq -r '.tool_use_id // empty' "$ENTRY" 2>/dev/null)
+      [ -z "$WAITS_ON" ] || [ "$WAITS_ON" = "$TOOL_USE_ID" ] || exit 0
+    fi
     lock_entry || exit 0
     jq -c --argjson n "$(date +%s)" --argjson ts "$TS" \
       'if .done != true and .ts == $ts then .done = true | .done_ts = $n else . end' \
@@ -143,10 +148,16 @@ if jq -e --arg m "$MSG" --argjson now "$NOW" \
   exit 0
 fi
 
+# The tool call the request waits on. A notification has none: it keeps the one
+# of the request it follows, if that one still waits.
+WAITS_ON="$TOOL_USE_ID"
+[ -n "$WAITS_ON" ] || WAITS_ON=$(jq -r 'select(.done != true) | .tool_use_id // empty' "$ENTRY" 2>/dev/null)
+
 # The inbox entry: the newest request of a session replaces its earlier one.
 jq -nc --argjson ts "$NOW" --arg session "$SID" --arg title "$TITLE" --arg section "$SECTION" \
-  --arg project "$PROJECT" --arg msg "$MSG" --arg link "$LINK" \
-  '{ts:$ts,session:$session,title:$title,section:$section,project:$project,msg:$msg,link:$link,done:false}' \
+  --arg project "$PROJECT" --arg msg "$MSG" --arg link "$LINK" --arg tu "$WAITS_ON" \
+  '{ts:$ts,session:$session,title:$title,section:$section,project:$project,msg:$msg,link:$link,done:false}
+   + (if $tu != "" then {tool_use_id:$tu} else {} end)' \
   > "$ENTRY.tmp.$$" 2>/dev/null && lock_entry && { mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null; unlock_entry; }
 rm -f "$ENTRY.tmp.$$" 2>/dev/null
 

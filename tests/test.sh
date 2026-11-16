@@ -85,6 +85,19 @@ fire "Question D"; sleep 1
 CLAUDE_CODE_HOST_SESSION_ID=local_other event PostToolUse Bash
 same other-session-leaves-it "$(entry .done)" "false"
 
+# Tools run in parallel: a request waits on one tool call, and only that call's
+# completion handles it. A notification that follows keeps the call it waits on.
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"tu-bash"}' | "$HOOK"; sleep 1
+same request-keeps-tool-call "$(entry .tool_use_id)" "tu-bash"
+echo '{"hook_event_name":"PostToolUse","tool_name":"Read","tool_use_id":"tu-read"}' | "$HOOK"
+same parallel-tool-leaves-it "$(entry .done)" "false"
+echo '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}' | "$HOOK"; sleep 1
+same notification-keeps-tool-call "$(entry .tool_use_id)" "tu-bash"
+echo '{"hook_event_name":"PostToolUse","tool_name":"Read","tool_use_id":"tu-read-2"}' | "$HOOK"
+same parallel-tool-leaves-notification "$(entry .done)" "false"
+echo '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"tu-bash"}' | "$HOOK"
+same own-tool-call-handles "$(entry .done)" "true"
+
 # --- Without the window ------------------------------------------------------
 
 setup banner
