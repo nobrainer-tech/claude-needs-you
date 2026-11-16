@@ -33,12 +33,23 @@ active() {
 }
 cannot_write() { echo "nb-autopilot: could not write $STATE_FILE" >&2; exit 1; }
 # Apply a jq filter to the state file (an empty object when there is none).
+# A lock folder serialises writers (this command, the window's switches), and
+# each writer has its own temp file, so no change is lost.
 update() {
-  local cur='{}'
-  [ -s "$STATE_FILE" ] && cur=$(cat "$STATE_FILE" 2>/dev/null)
+  local lock="$STATE_FILE.lock" tmp cur='{}' ok=1
   mkdir -p "$DATA" 2>/dev/null
-  printf '%s' "$cur" | jq "$@" > "$STATE_FILE.tmp" 2>/dev/null &&
-    mv "$STATE_FILE.tmp" "$STATE_FILE" 2>/dev/null
+  for _ in $(seq 1 50); do
+    mkdir "$lock" 2>/dev/null && break
+    # A lock older than a minute belongs to a writer that crashed.
+    [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$lock" 2>/dev/null
+    sleep 0.1
+  done
+  [ -s "$STATE_FILE" ] && cur=$(cat "$STATE_FILE" 2>/dev/null)
+  tmp=$(mktemp "$DATA/.autopilot.XXXXXX" 2>/dev/null) &&
+    printf '%s' "$cur" | jq "$@" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" 2>/dev/null && ok=0
+  [ -n "${tmp:-}" ] && rm -f "$tmp" 2>/dev/null
+  rmdir "$lock" 2>/dev/null
+  return "$ok"
 }
 
 case "${1:-status}" in
@@ -82,23 +93,26 @@ case "${1:-status}" in
         '.sessions[$id] = {title: $t, since_epoch: $n}' || cannot_write
       echo "Autopilot ON for ${4:-$sid}"
     else
-      update --arg id "$sid" 'del(.sessions[$id])' || cannot_write
+      # Kept with its end time, so the morning report still has its decisions.
+      update --arg id "$sid" --argjson n "$now" \
+        'if .sessions[$id] then .sessions[$id].off_epoch = $n else . end' || cannot_write
       echo "Autopilot OFF for ${4:-$sid}"
     fi
     ;;
   status)
     if active; then echo "Autopilot ON until $(saved .until)"; else echo "Autopilot OFF"; fi
-    jq -r '(.sessions // {}) | to_entries[] | "  on for \(.value.title // .key) (\(.key))"' "$STATE_FILE" 2>/dev/null
+    jq -r '(.sessions // {}) | to_entries[] | select(.value.off_epoch == null)
+      | "  on for \(.value.title // .key) (\(.key))"' "$STATE_FILE" 2>/dev/null
     ;;
   report)
     # Since autopilot for all sessions was last switched on, plus the decisions
-    # of each session that has its own autopilot since it was ticked.
+    # of each session that had its own autopilot, while it was ticked.
     since=$(saved .since_epoch)
-    own=$(jq -c '(.sessions // {}) | map_values(.since_epoch // 0)' "$STATE_FILE" 2>/dev/null)
+    own=$(jq -c '(.sessions // {}) | map_values([.since_epoch // 0, .off_epoch // 9999999999])' "$STATE_FILE" 2>/dev/null)
     [ -n "$own" ] || own='{}'
     lines=""
     [ -s "$LOG" ] && lines=$(jq -r --argjson s "${since:-$((now + 1))}" --argjson own "$own" \
-      'select(.ts >= $s or (($own[.session] // null) != null and .ts >= $own[.session]))
+      'select(.ts >= $s or ($own[.session] as $r | $r != null and .ts >= $r[0] and .ts <= $r[1]))
        | "\(.time)  \(.title)  \(.decision)"' "$LOG" 2>/dev/null)
     if [ -n "$lines" ]; then printf '%s\n' "$lines"; else echo "No autopilot decisions."; fi
     ;;

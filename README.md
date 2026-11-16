@@ -81,7 +81,7 @@ In the morning ask any session `what did autopilot decide?`. An example report:
 ```text
 2026-11-09 23:41  checkout-api | flaky payment test  Add a nullable column or keep the retry? -> Keep the retry (Recommended)
 2026-11-10 02:17  docs-site | search page  Regenerate the search index too? -> Yes, regenerate
-2026-11-10 03:05  checkout-api | flaky payment test  Merge the pull request? -> left for the owner (merge)
+2026-11-10 03:05  checkout-api | flaky payment test  Commit the fix? -> left for the owner (commit)
 ```
 
 The command behind it is [`bin/nb-autopilot`](bin/nb-autopilot): `on [HH:MM]`,
@@ -94,7 +94,8 @@ their PATH. `needs-you-window` opens the window by hand.
 |---|---|
 | asks a question with options (`AskUserQuestion`) | is told to take the option whose label ends with `(Recommended)`, or the first one, and continue |
 | ends a turn with a question (Claude desktop app) | is told to act on its first suggested answer and finish the turn |
-| ends a turn asking for a go-ahead to commit, open or merge a pull request | is told not to take that step; the question is left for you |
+| ends a turn asking for a go-ahead to commit or open a pull request | is told not to take that step; the question is left for you |
+| asks about merging, pushing, deploying, publishing, deleting, paying, logging in or granting a permission | is not answered, even when it recommends that step: the question waits for you, in the window |
 | has a plan waiting for approval | waits for you, in the window |
 | needs a permission, or had a command blocked | waits for you, in the window |
 
@@ -201,8 +202,8 @@ Merge it with the hooks you already have. Then run
 ## Tests
 
 ```bash
-bash tests/test.sh            # the inbox: 40 checks
-bash tests/autopilot-test.sh  # autopilot: 55 checks
+bash tests/test.sh            # the inbox: 42 checks
+bash tests/autopilot-test.sh  # autopilot: 60 checks
 bash tests/window-test.sh     # builds the window and renders it to a PNG
 ```
 

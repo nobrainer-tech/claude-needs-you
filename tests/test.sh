@@ -43,6 +43,21 @@ same new-request-waits-again "$(entry .done)" "false"
 event UserPromptSubmit
 same prompt-handles "$(entry .done)" "true"
 
+# A handled request that comes again within 2 minutes is a new request: the
+# same permission prompt after you approved the last one still reaches you.
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash"}' | "$HOOK"
+event PostToolUse Bash
+: > "$FAKE_LOG"
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash"}' | "$HOOK"; sleep 1
+same repeat-after-handled-waits "$(entry .done)" "false"
+expect repeat-after-handled-shown "WINDOW" 1
+
+# A newer request is not marked handled by a tool call that read the older one:
+# the hook only marks the request that is still in the file.
+echo '{"ts":1,"session":"local_test","msg":"old","done":false}' > "$(INBOX)"
+event PostToolUse Bash
+same handles-current "$(entry .done)" "true"
+
 # Another session's tool call leaves this entry alone.
 fire "Question D"; sleep 1
 CLAUDE_CODE_HOST_SESSION_ID=local_other event PostToolUse Bash

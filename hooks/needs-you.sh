@@ -24,7 +24,6 @@ LATER_LABEL="${NEEDS_YOU_LATER:-Later}"
 WINDOW="${NEEDS_YOU_WINDOW_CMD:-$ROOT/bin/needs-you-window}"
 DATA="$HOME/.claude/needs-you"            # inbox/, autopilot.json, decisions.jsonl
 INBOX="$DATA/inbox"
-STATE="$HOME/Library/Caches/needs-you"    # "already shown" marks
 
 INPUT=$(cat)
 field() { printf '%s' "$INPUT" | jq -r "$1 // empty" 2>/dev/null; }
@@ -51,9 +50,11 @@ case "$EVENT" in
     [ "$TOOL" = mcp__ccd_turn__wrap_up ] && exit 0
     [ -n "$AGENT" ] && exit 0
     [ -f "$ENTRY" ] || exit 0
-    jq -e '.done != true' "$ENTRY" >/dev/null 2>&1 || exit 0
+    TS=$(jq -r 'select(.done != true) | .ts' "$ENTRY" 2>/dev/null)
+    [ -n "$TS" ] || exit 0
     jq -c --argjson n "$(date +%s)" '.done = true | .done_ts = $n' "$ENTRY" > "$ENTRY.tmp.$$" 2>/dev/null &&
-      mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null
+      # A newer request may have replaced the entry meanwhile: leave that one alone.
+      [ "$(jq -r .ts "$ENTRY" 2>/dev/null)" = "$TS" ] && mv "$ENTRY.tmp.$$" "$ENTRY" 2>/dev/null
     rm -f "$ENTRY.tmp.$$" 2>/dev/null
     exit 0 ;;
 esac
@@ -110,9 +111,19 @@ LINK=""
 # away is not a real setting (nb-autopilot never writes one), so it counts as off.
 NOW=$(date +%s)
 AP=$(jq -r --arg id "$SID" --argjson now "$NOW" '
-  if (.sessions // {})[$id] then "this session"
+  if (.sessions // {})[$id] and .sessions[$id].off_epoch == null then "this session"
   elif (.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400 then "until \(.until)"
   else empty end' "$DATA/autopilot.json" 2>/dev/null)
+# A question about a step only the owner may take is never answered, even with
+# a recommendation: it goes to the inbox. The words are checked in the question,
+# its options and the suggested answers, in English and Polish.
+OWNER_ONLY='merg|push|deploy|publish|release|delet|drop|remove|purchas|pay|refund|login|log in|password|credential|permission|secret|token|scal|wypchn|wdro|opublik|publikac|usu[nń]|kasow|zapła|płatno|hasł|zalog|uprawnie|zgod'
+if [ -n "$AP" ] && printf '%s' "$INPUT" | jq -e --arg re "$OWNER_ONLY" '
+     [.tool_input.questions[]? | .question, (.options[]?.label)] + [.tool_input.ask]
+     + [.tool_input.actions[]? | .label, .action] | map(strings) | join(" ")
+     | test($re; "i")' >/dev/null 2>&1; then
+  AP=""
+fi
 if [ "$EVENT" = PreToolUse ] && [ "$TOOL" != ExitPlanMode ] && [ -n "$AP" ]; then
   if [ "$TOOL" = AskUserQuestion ]; then
     # Per question: the option whose label ends with "(Recommended)", else the
@@ -134,7 +145,7 @@ if [ "$EVENT" = PreToolUse ] && [ "$TOOL" != ExitPlanMode ] && [ -n "$AP" ]; the
     DECISION="$MSG -> ${PICK:-your recommendation}"
     HOW="Do not end the turn with a question. Act on your recommended answer now ($DECISION), then finish the turn without a question."
   fi
-  REASON="Autopilot is on ($AP): the owner is away and will not answer. $HOW Never decide these yourself: logins or passwords, payments or purchases, merging, pushing or deploying, publishing or sending anything to other people, deleting data, irreversible production changes, granting permissions. For such a step: skip it, finish the rest and leave the question in your final message. This decision is logged for the owner's morning report."
+  REASON="Autopilot is on ($AP): the owner is away and will not answer. Never decide these yourself, even when they are your recommendation: logins or passwords, payments or purchases, merging, pushing or deploying, publishing or sending anything to other people, deleting data, irreversible production changes, granting permissions. For such a step: skip it, finish the rest and leave the question in your final message. For everything else: $HOW This decision is logged for the owner's morning report."
   # Answer for the owner only when the decision is on record. If the log cannot
   # be written, fall through: the owner gets the inbox entry instead.
   mkdir -p "$DATA" 2>/dev/null
@@ -149,16 +160,17 @@ if [ "$EVENT" = PreToolUse ] && [ "$TOOL" != ExitPlanMode ] && [ -n "$AP" ]; the
 fi
 
 # --- Needs You -------------------------------------------------------------
-# The same message from the same session counts once per 2 minutes.
-mkdir -p "$STATE" "$INBOX" 2>/dev/null
-KEY=$(printf '%s|%s' "$SID" "$MSG" | md5 -q)
-[ -n "$(find "$STATE/$KEY" -mmin -2 2>/dev/null)" ] && exit 0
-touch "$STATE/$KEY"
-find "$STATE" -maxdepth 1 -type f -mmin +120 -delete 2>/dev/null
-
+mkdir -p "$INBOX" 2>/dev/null
 # One line, at most 180 characters. jq counts characters, so a letter outside
 # ASCII is never cut in half, whatever the locale of the hook's environment.
 MSG=$(jq -rn --arg m "$MSG" '$m | gsub("[\r\n\t]+"; " ") | .[0:180]')
+
+# The same message from the same session, still waiting, counts once per
+# 2 minutes. Once it is handled, the same message again is a new request.
+if jq -e --arg m "$MSG" --argjson now "$NOW" \
+     '.done != true and .msg == $m and ($now - .ts) < 120' "$ENTRY" >/dev/null 2>&1; then
+  exit 0
+fi
 
 # The inbox entry: the newest request of a session replaces its earlier one.
 jq -nc --argjson ts "$NOW" --arg session "$SID" --arg title "$TITLE" --arg section "$SECTION" \

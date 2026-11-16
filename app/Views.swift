@@ -239,7 +239,7 @@ final class Inbox: NSObject {
     }
     if entries.contains(where: { $0.done }) {
       bar.addArrangedSubview(pill(T.clear, filled: false, Target { [unowned self] in
-        for e in loadEntries() where e.done { try? FileManager.default.removeItem(atPath: e.file) }
+        for e in loadEntries() where e.done { removeHandled(e) }
         self.refresh(force: true)
       }))
     }

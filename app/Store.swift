@@ -72,12 +72,20 @@ func loadAutopilot() -> Autopilot {
   guard let j = readJSON(autopilotFile) else { return Autopilot(until: nil, sessions: []) }
   let now = Date().timeIntervalSince1970
   let u = num(j["until_epoch"])
-  let sessions = Set(((j["sessions"] as? [String: Any]) ?? [:]).keys)
+  let all = (j["sessions"] as? [String: [String: Any]]) ?? [:]
+  let sessions = Set(all.filter { $0.value["off_epoch"] == nil }.keys)
   return Autopilot(until: u > now && u - now <= dayAgo ? str(j["until"]) : nil, sessions: sessions)
 }
 
+// Remove a handled entry, unless the session has asked again since.
+func removeHandled(_ e: Entry) {
+  guard let j = readJSON(e.file), (j["done"] as? Bool) == true, num(j["ts"]) == e.ts else { return }
+  try? FileManager.default.removeItem(atPath: e.file)
+}
+
 func markDone(_ e: Entry) {
-  guard var j = readJSON(e.file), (j["done"] as? Bool) != true else { return }
+  // Only the request that was on screen: a newer one from the session stays.
+  guard var j = readJSON(e.file), (j["done"] as? Bool) != true, num(j["ts"]) == e.ts else { return }
   j["done"] = true
   j["done_ts"] = Int(Date().timeIntervalSince1970)
   writeJSON(j, e.file)

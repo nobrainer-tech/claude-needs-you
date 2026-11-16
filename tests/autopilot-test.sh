@@ -29,21 +29,30 @@ check ap-polish-marker "$(printf '%s' "$Q" | "$HOOK")" "Która ścieżka? -> B (
 
 # "not recommended" inside a label is not the marker.
 Q='{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[
-  {"question":"Drop the old table?","options":[{"label":"Keep it"},{"label":"Drop it now (not recommended)"}]}]}}'
-check ap-not-recommended-is-not-picked "$(printf '%s' "$Q" | "$HOOK")" "Drop the old table? -> Keep it" 1
+  {"question":"Rename the old column?","options":[{"label":"Keep it"},{"label":"Rename it now (not recommended)"}]}]}}'
+check ap-not-recommended-is-not-picked "$(printf '%s' "$Q" | "$HOOK")" "Rename the old column? -> Keep it" 1
 
 W='{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"ask":"Run the slow tests too?","actions":[{"label":"Yes, run them"},{"label":"No"}]}}'
 out=$(printf '%s' "$W" | "$HOOK")
 check ap-end-of-turn "$out" "Run the slow tests too? -> Yes, run them" 1
 check ap-exceptions-cover-merging "$out" "merging, pushing or deploying" 1
 
-# An end-of-turn question whose first answer is an app action (merge, commit,
-# open a pull request) is a go-ahead for the owner: autopilot never takes it.
+# A question about a step only the owner may take (merge, push, deploy, publish,
+# delete, pay, log in, grant) is never answered, even when the session
+# recommends it, and whether it is an app action or a plain option: it goes to
+# the inbox.
 W='{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"ask":"Merge the pull request?","actions":[{"action":"merge"}]}}'
 out=$(printf '%s' "$W" | "$HOOK")
-check ap-app-action-denied "$out" '"permissionDecision": "deny"' 1
-check ap-app-action-left-for-owner "$out" "do not take that step" 1
-check ap-app-action-not-taken "$out" "Act on your recommended answer now" 0
+check ap-app-action-not-answered "$out" "permissionDecision" 0
+same ap-app-action-in-inbox "$(entry .msg)" "Merge the pull request?"
+Q='{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[
+  {"question":"Ready to ship?","options":[{"label":"Deploy to production (Recommended)"},{"label":"Wait"}]}]}}'
+check ap-owner-only-option-not-answered "$(printf '%s' "$Q" | "$HOOK")" "permissionDecision" 0
+same ap-owner-only-option-in-inbox "$(entry .msg)" "Ready to ship?"
+W='{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"ask":"Scalić PR?","actions":[{"label":"Tak, scal"}]}}'
+check ap-owner-only-polish-not-answered "$(printf '%s' "$W" | "$HOOK")" "permissionDecision" 0
+W='{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"ask":"Run the slow tests too?","actions":[{"label":"Yes"}]}}'
+check ap-never-list-first "$(printf '%s' "$W" | "$HOOK" | jq -r .hookSpecificOutput.permissionDecisionReason)" "will not answer. Never decide these yourself" 1
 
 # Autopilot never answers a permission prompt or a plan: those go to the inbox.
 out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{}}' | "$HOOK")
@@ -56,7 +65,7 @@ same ap-plan-in-inbox "$(entry .msg)" "A plan is waiting for your approval"
 report=$("$AP" report)
 check ap-report-question "$report" "Which path? -> Path B (Recommended)" 1
 check ap-report-end-of-turn "$report" "Run the slow tests too? -> Yes, run them" 1
-check ap-report-left-for-owner "$report" "Merge the pull request? -> left for the owner (merge)" 1
+check ap-report-no-owner-only "$report" "Merge the pull request?" 0
 check ap-report-session "$report" "my-app | checkout bug" 1
 
 # Switching on again keeps the start of the report; off keeps the report.
@@ -113,6 +122,12 @@ check ap-session-report "$("$AP" report)" "Ticked session question -> your recom
 check ap-global-off-keeps-session "$("$AP" status)" "on for my-app" 1
 check ap-session-off "$("$AP" session off local_test)" "Autopilot OFF for local_test" 1
 check ap-session-off-asks-again "$(fire "Unticked again")" "permissionDecision" 0
+check ap-session-off-status "$("$AP" status)" "on for my-app" 0
+check ap-report-after-untick "$("$AP" report)" "Ticked session question -> your recommendation" 1
+
+# Writers that race keep both changes.
+for i in 1 2 3 4 5 6; do "$AP" session on "local_r$i" >/dev/null & done; wait
+same ap-parallel-writes-kept "$(jq '[.sessions | keys[] | select(startswith("local_r"))] | length' "$HOME/.claude/needs-you/autopilot.json")" "6"
 "$AP" session on 'bad id;rm' >/dev/null 2>&1
 same ap-session-rejects-bad-id "exit=$?" "exit=2"
 
