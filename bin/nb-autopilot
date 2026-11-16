@@ -33,17 +33,19 @@ active() {
 }
 cannot_write() { echo "nb-autopilot: could not write $STATE_FILE" >&2; exit 1; }
 # Apply a jq filter to the state file (an empty object when there is none).
-# A lock folder serialises writers (this command, the window's switches), and
-# each writer has its own temp file, so no change is lost.
+# Every writer (this command and the window's switches) takes the same lock
+# folder and has its own temp file, so no change is lost or undone. Without the
+# lock nothing is written and the call fails.
 update() {
-  local lock="$STATE_FILE.lock" tmp cur='{}' ok=1
+  local lock="$STATE_FILE.lock" tmp cur='{}' ok=1 got=""
   mkdir -p "$DATA" 2>/dev/null
   for _ in $(seq 1 50); do
-    mkdir "$lock" 2>/dev/null && break
+    if mkdir "$lock" 2>/dev/null; then got=1; break; fi
     # A lock older than a minute belongs to a writer that crashed.
     [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$lock" 2>/dev/null
     sleep 0.1
   done
+  [ -n "$got" ] || return 1
   [ -s "$STATE_FILE" ] && cur=$(cat "$STATE_FILE" 2>/dev/null)
   tmp=$(mktemp "$DATA/.autopilot.XXXXXX" 2>/dev/null) &&
     printf '%s' "$cur" | jq "$@" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" 2>/dev/null && ok=0
@@ -64,20 +66,18 @@ case "${1:-status}" in
       until=$(date -j -f '%Y-%m-%d %H:%M:%S' "$(date -v+1d +%Y-%m-%d) $hhmm:00" +%s) || exit 1
     fi
     # Switching on again while it runs keeps the start, so the report stays whole.
-    since=$now
-    active && since=$(saved .since_epoch)
+    # Decided under the lock, from the state as it is at that moment.
     label=$(date -r "$until" '+%Y-%m-%d %H:%M')
-    update --argjson u "$until" --argjson s "${since:-$now}" --arg h "$label" \
-      '.until_epoch = $u | .since_epoch = $s | .until = $h' || cannot_write
+    update --argjson u "$until" --argjson n "$now" --arg h "$label" '
+      (((.until_epoch // 0) > $n) and ((.until_epoch // 0) - $n <= 86400)) as $running
+      | .since_epoch = (if $running then (.since_epoch // $n) else $n end)
+      | .until_epoch = $u | .until = $h' || cannot_write
     echo "Autopilot ON until $label"
     ;;
   off)
+    # Keeps the start time for the report and the per-session switches.
     if [ -f "$STATE_FILE" ]; then
-      # Keep the start time for the report; if that fails, remove the file.
-      if ! { jq --argjson n "$now" '.until_epoch = $n' "$STATE_FILE" > "$STATE_FILE.tmp" 2>/dev/null &&
-             mv "$STATE_FILE.tmp" "$STATE_FILE" 2>/dev/null; }; then
-        rm -f "$STATE_FILE" 2>/dev/null
-      fi
+      update --argjson n "$now" '.until_epoch = $n' || cannot_write
       if active; then cannot_write; fi
     fi
     echo "Autopilot OFF"

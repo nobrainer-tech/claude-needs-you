@@ -128,6 +128,19 @@ check ap-report-after-untick "$("$AP" report)" "Ticked session question -> your 
 # Writers that race keep both changes.
 for i in 1 2 3 4 5 6; do "$AP" session on "local_r$i" >/dev/null & done; wait
 same ap-parallel-writes-kept "$(jq '[.sessions | keys[] | select(startswith("local_r"))] | length' "$HOME/.claude/needs-you/autopilot.json")" "6"
+
+# Global off takes the same lock: a session switch racing it cannot undo it.
+"$AP" on 23:59 >/dev/null
+for i in 1 2 3 4 5 6; do "$AP" session on "local_s$i" >/dev/null & done
+"$AP" off >/dev/null; wait
+check ap-off-not-undone "$("$AP" status)" "Autopilot OFF" 1
+
+# A lock held by a live writer is never taken: the call fails and leaves it.
+mkdir "$HOME/.claude/needs-you/autopilot.json.lock"
+out=$("$AP" session on local_locked 2>&1; echo "exit=$?")
+check ap-busy-lock-fails "$out" "exit=1" 1
+if [ -d "$HOME/.claude/needs-you/autopilot.json.lock" ]; then echo "PASS ap-busy-lock-kept"; else echo "FAIL ap-busy-lock-kept"; FAIL=1; fi
+rmdir "$HOME/.claude/needs-you/autopilot.json.lock"
 "$AP" session on 'bad id;rm' >/dev/null 2>&1
 same ap-session-rejects-bad-id "exit=$?" "exit=2"
 
