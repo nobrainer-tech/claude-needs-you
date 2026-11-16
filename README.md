@@ -132,6 +132,7 @@ Every text in the window and the hook can be translated:
 `NEEDS_YOU_TITLE` (`Claude needs you`), `NEEDS_YOU_WAITING_COUNT` (`waiting`),
 `NEEDS_YOU_HANDLED` (`handled`), `NEEDS_YOU_EMPTY`, `NEEDS_YOU_HINT`,
 `NEEDS_YOU_CLEAR` (`Clear handled`), `NEEDS_YOU_ROW_AUTOPILOT` (`Autopilot`),
+`NEEDS_YOU_ROW_ON_AUTOPILOT`,
 `NEEDS_YOU_AP_START` (`Autopilot until`), `NEEDS_YOU_AP_STOP`,
 `NEEDS_YOU_AP_ON`, `NEEDS_YOU_AP_OFF`, `NEEDS_YOU_PLAN`,
 `NEEDS_YOU_PERMISSION`, `NEEDS_YOU_BLOCKED`, `NEEDS_YOU_WAITING`, and for the
@@ -203,7 +204,7 @@ Merge it with the hooks you already have. Then run
 
 ```bash
 bash tests/test.sh            # the inbox: 44 checks
-bash tests/autopilot-test.sh  # autopilot: 66 checks
+bash tests/autopilot-test.sh  # autopilot: 68 checks
 bash tests/window-test.sh     # builds the window and renders it to a PNG
 ```
 

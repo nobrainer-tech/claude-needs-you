@@ -30,7 +30,8 @@ let T = (
   apOn: text("NEEDS_YOU_AP_ON", "Autopilot on until"),
   apOff: text("NEEDS_YOU_AP_OFF", "Autopilot off"),
   waiting: text("NEEDS_YOU_WAITING_COUNT", "waiting"),
-  handled: text("NEEDS_YOU_HANDLED", "handled")
+  handled: text("NEEDS_YOU_HANDLED", "handled"),
+  rowOnAutopilot: text("NEEDS_YOU_ROW_ON_AUTOPILOT", "On autopilot: this session answers its own questions.")
 )
 
 var inboxDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/needs-you/inbox")

@@ -72,7 +72,7 @@ final class RowView: Card {
     super.init(frame: .zero)
     if e.done { fill = .clear; stroke = C.border.withAlphaComponent(0.5) } else { accent = C.orange }
     alphaValue = e.done ? 0.55 : 1
-    let meta = [timeLabel(e.ts), e.section, e.project].filter { !$0.isEmpty } + (e.done ? [T.handled] : [])
+    let meta = (e.file.isEmpty ? [] : [timeLabel(e.ts), e.section, e.project].filter { !$0.isEmpty } + (e.done ? [T.handled] : []))
     let top = label(meta.joined(separator: "  ·  "), font(11, "Medium"), C.muted)
     let title = label(e.title.isEmpty ? "Claude Code" : e.title, font(14, "Bold"), C.ink)
     let msg = label(e.msg, font(13), C.ink, lines: 6)
@@ -204,7 +204,7 @@ final class Inbox: NSObject {
     let entries = loadEntries()
     let ap = loadAutopilot()
     let sig = entries.map { "\($0.file)|\($0.ts)|\($0.done)|\($0.msg)|\($0.title)" }.joined(separator: "\n")
-      + "|\(ap.until ?? "")|\(ap.sessions.sorted())"
+      + "|\(ap.until ?? "")|\(ap.sessions.keys.sorted())"
     if !force && sig == signature { return }
     signature = sig
 
@@ -245,12 +245,21 @@ final class Inbox: NSObject {
     }
 
     list.arrangedSubviews.forEach { $0.removeFromSuperview() }
-    if entries.isEmpty {
+    // A session on its own autopilot keeps a row, and so its switch, even when
+    // it has no request in the inbox (cleared, expired, or all answered).
+    let listed = Set(entries.map { $0.session })
+    let onAutopilot = ap.sessions.filter { !listed.contains($0.key) }.sorted { $0.key < $1.key }.map { id, title in
+      Entry(file: "", session: id, title: title, section: "", project: "", msg: T.rowOnAutopilot,
+            link: id.hasPrefix("local_") ? "claude://claude.ai/epitaxy/\(id)" : "",
+            ts: 0, doneTs: 0, done: true)
+    }
+    let rows = entries + onAutopilot
+    if rows.isEmpty {
       list.addArrangedSubview(label(T.empty, font(14, "Medium"), C.muted))
       return
     }
-    for e in entries {
-      let row = RowView(e, autopilot: ap.sessions.contains(e.session)) { [unowned self] e, on in
+    for e in rows {
+      let row = RowView(e, autopilot: ap.sessions[e.session] != nil) { [unowned self] e, on in
         runAutopilot(["session", on ? "on" : "off", e.session, e.title])
         self.refresh(force: true)
       }

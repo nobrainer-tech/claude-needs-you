@@ -70,14 +70,16 @@ func loadEntries() -> [Entry] {
   }
 }
 
-struct Autopilot { var until: String?; var sessions: Set<String> }
+// sessions: the sessions with their own autopilot on, id -> title.
+struct Autopilot { var until: String?; var sessions: [String: String] }
 func loadAutopilot() -> Autopilot {
-  guard let j = readJSON(autopilotFile) else { return Autopilot(until: nil, sessions: []) }
+  guard let j = readJSON(autopilotFile) else { return Autopilot(until: nil, sessions: [:]) }
   let now = Date().timeIntervalSince1970
   let u = num(j["until_epoch"])
   // A session is on while its last period has no end.
   let all = (j["sessions"] as? [String: [String: Any]]) ?? [:]
-  let sessions = Set(all.filter { (($0.value["periods"] as? [[Any]])?.last?.last).map { $0 is NSNull } ?? false }.keys)
+  let sessions = all.filter { (($0.value["periods"] as? [[Any]])?.last?.last).map { $0 is NSNull } ?? false }
+    .mapValues { str($0["title"]) }
   return Autopilot(until: u > now && u - now <= dayAgo ? str(j["until"]) : nil, sessions: sessions)
 }
 

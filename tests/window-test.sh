@@ -7,7 +7,8 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK=$(mktemp -d /tmp/needs-you-window.XXXXXX)
-trap 'kill "$first" 2>/dev/null; rm -rf "$WORK"' EXIT
+first=""
+trap '[ -n "$first" ] && kill "$first" 2>/dev/null; rm -rf "$WORK"' EXIT
 export HOME="$WORK"
 FAIL=0
 pass() { echo "PASS $1"; }
@@ -32,7 +33,7 @@ entry local_b 4 "📣 Marketing" landing-page "🟡 landing-page | ✍️ Pricin
 entry local_c 9 "🧩 Platform" infra "🟠 infra | 🔐 Rotate staging keys" "Permission needed: Bash" false
 entry local_d 25 "📓 Docs" docs-site "✅ docs-site | 🔎 Search page" "Regenerate the search index too?" true
 entry local_old 1500 "" old "old" "older than a day" false
-jq -nc --argjson u $((now + 6 * 3600)) '{until_epoch:$u,since_epoch:0,until:"08:00",sessions:{local_b:{title:"",periods:[[0,null]]}}}' \
+jq -nc --argjson u $((now + 6 * 3600)) '{until_epoch:$u,since_epoch:0,until:"08:00",sessions:{local_b:{title:"",periods:[[0,null]]},local_quiet:{title:"🟢 api | 🤖 Night refactor",periods:[[0,null]]}}}' \
   > "$HOME/.claude/needs-you/autopilot.json"
 
 out="${1:-$WORK/window.png}"

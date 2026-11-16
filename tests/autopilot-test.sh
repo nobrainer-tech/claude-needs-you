@@ -129,6 +129,10 @@ check ap-report-after-untick "$("$AP" report)" "Ticked session question -> your 
 check ap-retick-on "$(fire "Ticked again question")" '"permissionDecision": "deny"' 1
 check ap-report-keeps-first-period "$("$AP" report)" "Ticked session question -> your recommendation" 1
 check ap-report-has-second-period "$("$AP" report)" "Ticked again question -> your recommendation" 1
+# Switching an already ticked session on again keeps its open period.
+"$AP" session on local_test >/dev/null
+check ap-on-again-keeps-period "$("$AP" report)" "Ticked again question -> your recommendation" 1
+same ap-on-again-one-open-period "$(jq '.sessions.local_test.periods | map(select(.[1] == null)) | length' "$HOME/.claude/needs-you/autopilot.json")" "1"
 "$AP" session off local_test >/dev/null
 
 # Writers that race keep both changes.
