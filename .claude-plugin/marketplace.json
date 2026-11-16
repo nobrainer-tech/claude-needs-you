@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Needs You: one inbox window for every Claude Code session waiting for you, and an autopilot.",
-    "version": "0.2.0"
+    "version": "0.2.1"
   },
   "plugins": [
     {
       "name": "needs-you",
       "description": "One window with every Claude Code session that waits for you: click to open it, handled ones grey out. Plus an autopilot, for all sessions until morning or per session, that takes the session's own recommended answer.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "NoBrainer Tech"
       },

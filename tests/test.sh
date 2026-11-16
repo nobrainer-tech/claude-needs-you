@@ -109,6 +109,32 @@ same first-call-leaves-second "$(entry .done)" "false"
 echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"tu-2"}' | "$HOOK"; sleep 1
 expect same-call-again-counts-once "WINDOW" 0
 
+# --- Settings that do not depend on the session ------------------------------
+
+# A session started before the owner set the texts has none in its
+# environment; ~/.claude/needs-you/settings.json still gives them, and the
+# window opened by that session gets them too.
+setup settings
+mkdir -p "$HOME/.claude/needs-you"
+echo '{"NEEDS_YOU_LANG":"pl","NEEDS_YOU_PLAN":"Plan do akceptacji"}' > "$HOME/.claude/needs-you/settings.json"
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash"}' | "$HOOK"; sleep 1
+same file-language-in-entry "$(entry .msg)" "Prośba o zgodę: Bash"
+expect window-gets-file-language "[Claude czeka na Ciebie]" 1
+echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode"}' | "$HOOK"; sleep 1
+same file-text-beats-language "$(entry .msg)" "Plan do akceptacji"
+# The session's own environment still wins.
+NEEDS_YOU_PERMISSION="Zgoda" sh -c 'echo "{\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Read\"}" | "$0"' "$HOOK"; sleep 1
+same environment-beats-file "$(entry .msg)" "Zgoda: Read"
+# An unknown or unsafe language name is ignored.
+echo '{"NEEDS_YOU_LANG":"../pl"}' > "$HOME/.claude/needs-you/settings.json"
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Grep"}' | "$HOOK"; sleep 1
+same unsafe-language-ignored "$(entry .msg)" "Permission needed: Grep"
+# Every text the window and the hook use has a Polish translation.
+missing=$(grep -ho 'text("NEEDS_YOU_[A-Z_]*\|NEEDS_YOU_[A-Z_]*:-[^}$]' "$ROOT/app/main.swift" "$ROOT/hooks/needs-you.sh" \
+  | grep -o 'NEEDS_YOU_[A-Z_]*' | sort -u | grep -v -e IDLE -e WINDOW \
+  | while read -r k; do jq -e --arg k "$k" 'has($k)' "$ROOT/texts/pl.json" >/dev/null || echo "$k"; done)
+same polish-covers-every-text "$missing" ""
+
 # --- Without the window ------------------------------------------------------
 
 setup banner

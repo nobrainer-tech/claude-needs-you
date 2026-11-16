@@ -136,15 +136,27 @@ Before you trust it with a night:
 
 ## Settings
 
-Set these in the `env` block of `~/.claude/settings.json`.
+Put them in `~/.claude/needs-you/settings.json`. It is read on every request,
+so a change reaches every open session at once:
+
+```json
+{
+  "NEEDS_YOU_LANG": "pl",
+  "NEEDS_YOU_IDLE_CMD": "say \"$1\""
+}
+```
+
+The `env` block of `~/.claude/settings.json` works too and wins over the file,
+but a session only sees it if it started after the change.
 
 | Variable | What it does | Default |
 |---|---|---|
+| `NEEDS_YOU_LANG` | A built-in translation of every text: `pl` (Polish). [Add yours](texts/). | English |
 | `NEEDS_YOU_IDLE_CMD` | A shell command to run when a request comes while you are away from the Mac, for example a message to your phone. It gets `NEEDS_YOU_MESSAGE`, `NEEDS_YOU_SESSION_TITLE`, `NEEDS_YOU_SESSION_ID`, and one line of text as `$1`. | none |
 | `NEEDS_YOU_IDLE_MINUTES` | Minutes without keyboard or mouse input that count as away | `10` |
 | `NEEDS_YOU_WINDOW` | `0` turns the window off: a banner or a dialog per request instead | `1` |
 
-Every text in the window and the hook can be translated:
+Any single text can also be set on its own (it wins over the translation):
 `NEEDS_YOU_TITLE` (`Claude needs you`), `NEEDS_YOU_WAITING_COUNT` (`waiting`),
 `NEEDS_YOU_HANDLED` (`handled`), `NEEDS_YOU_EMPTY`, `NEEDS_YOU_HINT`,
 `NEEDS_YOU_CLEAR` (`Clear handled`), `NEEDS_YOU_ROW_AUTOPILOT` (`Autopilot`),
@@ -219,7 +231,7 @@ Merge it with the hooks you already have. Then run
 ## Tests
 
 ```bash
-bash tests/test.sh            # the inbox: 46 checks
+bash tests/test.sh            # the inbox: 60 checks
 bash tests/autopilot-test.sh  # autopilot: 77 checks
 bash tests/window-test.sh     # builds the window and renders it to a PNG
 ```
