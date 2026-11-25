@@ -70,15 +70,7 @@ known() {  # entry file, session, request time
   [ -f "$CLEARED/$2" ] && [ "$(cat "$CLEARED/$2" 2>/dev/null)" -ge "$3" ] 2>/dev/null
 }
 
-lock_entry() {  # the same lock folder as the hook and the window
-  local _
-  for _ in $(seq 1 40); do
-    mkdir "$1.lock" 2>/dev/null && return 0
-    ny_stale "$1.lock" && rmdir "$1.lock" 2>/dev/null
-    sleep 0.05
-  done
-  return 1
-}
+lock_entry() { ny_lock "$1.lock" 40 0.05; }   # the same lock as the hook and the window
 
 added=0
 # The newest copy of each session file changed in the last day.
@@ -105,13 +97,13 @@ while IFS= read -r file; do
   mkdir -p "$INBOX" 2>/dev/null
   lock_entry "$entry" || continue
   # Checked again under the lock: a hook may have written a newer request.
-  if known "$entry" "$id" "$ts"; then rmdir "$entry.lock" 2>/dev/null; continue; fi
+  if known "$entry" "$id" "$ts"; then ny_unlock "$entry.lock"; continue; fi
   jq -c --arg session "$id" --arg title "$TITLE" --arg section "$SECTION" \
      --arg project "$PROJECT" --arg link "$LINK" \
      '{ts, session: $session, title: $title, section: $section, project: $project, msg, link: $link,
        done: false} + (if .id != "" then {tool_use_id: .id} else {} end)' <<<"$open" > "$entry.tmp.$$" 2>/dev/null \
     && mv "$entry.tmp.$$" "$entry" && added=$((added + 1))
-  rm -f "$entry.tmp.$$"; rmdir "$entry.lock" 2>/dev/null
+  rm -f "$entry.tmp.$$"; ny_unlock "$entry.lock"
 done < <(find "$APP/claude-code-sessions" -name 'local_*.json' -type f -mtime -1 -exec stat "${NY_STAT[@]}" {} + 2>/dev/null \
            | sort -rn | cut -d' ' -f2- | awk -F/ '!seen[$NF]++')
 

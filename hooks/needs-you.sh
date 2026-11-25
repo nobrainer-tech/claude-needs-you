@@ -56,19 +56,11 @@ SID=$(printf '%s' "${APP_ID:-$CLI_ID}" | tr -c 'A-Za-z0-9_.-' '_')
 SID="${SID:-none}"
 ENTRY="$INBOX/$SID.json"
 
-# Every writer of an entry (this hook and the window) holds its lock folder, so
-# a check and the write that follows it see the same request. A lock older than
-# a minute belongs to a writer that crashed.
-lock_entry() {
-  local _
-  for _ in $(seq 1 40); do
-    mkdir "$ENTRY.lock" 2>/dev/null && return 0
-    ny_stale "$ENTRY.lock" && rmdir "$ENTRY.lock" 2>/dev/null
-    sleep 0.05
-  done
-  return 1
-}
-unlock_entry() { rmdir "$ENTRY.lock" 2>/dev/null; }
+# Every writer of an entry (this hook, the scan and the window) holds its lock
+# (ny_lock), so a check and the write that follows it see the same request. A
+# lock older than a minute belongs to a writer that crashed.
+lock_entry() { ny_lock "$ENTRY.lock" 40 0.05; }
+unlock_entry() { ny_unlock "$ENTRY.lock"; }
 
 # The inbox page in the browser (Linux, Windows) reads a data file; keep it
 # current whenever an entry changes. Never on a Mac that has not used it.

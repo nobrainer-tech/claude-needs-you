@@ -98,7 +98,7 @@ func loadAutopilot() -> Autopilot {
   return Autopilot(until: u > now && u - now <= dayAgo ? str(j["until"]) : nil, sessions: sessions)
 }
 
-// Every writer of an entry (the hook and this window) holds its lock folder, so
+// Every writer of an entry (the hook and this window) holds its lock, so
 // a check and the write that follows it see the same request. A lock older than
 // a minute belongs to a writer that crashed.
 func withEntryLock(_ file: String, _ body: () -> Void) {
@@ -106,7 +106,7 @@ func withEntryLock(_ file: String, _ body: () -> Void) {
   for _ in 0..<40 {
     if mkdir(lock, 0o700) == 0 { body(); rmdir(lock); return }
     if let m = (try? FileManager.default.attributesOfItem(atPath: lock))?[.modificationDate] as? Date,
-       Date().timeIntervalSince(m) > 60 { rmdir(lock) }
+       Date().timeIntervalSince(m) > 60 { rmdir(lock); unlink(lock) }
     usleep(50_000)
   }
 }

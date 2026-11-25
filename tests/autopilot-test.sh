@@ -173,9 +173,15 @@ check ap-on-again-keeps-period "$("$AP" report)" "Ticked again question -> your 
 same ap-on-again-one-open-period "$(jq '.sessions.local_test.periods | map(select(.[1] == null)) | length' "$HOME/.claude/needs-you/autopilot.json")" "1"
 "$AP" session off local_test >/dev/null
 
-# Writers that race keep both changes.
-for i in 1 2 3 4 5 6; do "$AP" session on "local_r$i" >/dev/null & done; wait
-same ap-parallel-writes-kept "$(jq '[.sessions | keys[] | select(startswith("local_r"))] | length' "$HOME/.claude/needs-you/autopilot.json")" "6"
+# Writers that race keep every change, round after round (a lock that two
+# writers can take at once loses one now and then, not every time).
+lost=""
+for round in 1 2 3 4 5; do
+  for i in 1 2 3 4 5 6; do "$AP" session on "local_r${round}_$i" >/dev/null & done; wait
+  n=$(jq --arg p "local_r${round}_" '[.sessions | keys[] | select(startswith($p))] | length' "$HOME/.claude/needs-you/autopilot.json")
+  [ "$n" = 6 ] || lost="$lost round $round: $n of 6;"
+done
+same ap-parallel-writes-kept "$lost" ""
 
 # Global off takes the same lock: a session switch racing it cannot undo it.
 "$AP" on 23:59 >/dev/null

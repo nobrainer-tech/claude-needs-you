@@ -56,6 +56,27 @@ ny_stale() {
   [ $(( $(date +%s) - m )) -gt 60 ]
 }
 
+# A lock: LOCK created exclusively by bash itself (noclobber opens it with
+# O_EXCL), not with mkdir. The mkdir of Ubuntu 26.04 (uutils) let two writers
+# create the same folder at once in CI. The macOS window locks the same path
+# with mkdir(2), which fails while this file exists, and the other way round.
+# ny_lock LOCK TRIES PAUSE: 0 when taken; a lock older than a minute is taken over.
+ny_lock() {
+  local i rc had_c=""
+  case "$-" in *C*) had_c=1 ;; esac
+  for (( i = 0; i < $2; i++ )); do
+    set -C
+    { printf '%s\n' "$$" > "$1"; } 2>/dev/null
+    rc=$?
+    [ -n "$had_c" ] || set +C
+    [ "$rc" = 0 ] && return 0
+    ny_stale "$1" && { rm -f "$1" 2>/dev/null || rmdir "$1" 2>/dev/null; }
+    sleep "$3"
+  done
+  return 1
+}
+ny_unlock() { rm -f "$1" 2>/dev/null; }
+
 # GNU or busybox date, else BSD date.
 if date -d @0 +%s >/dev/null 2>&1; then
   ny_date_at() { date -d "@$1" "+$2"; }

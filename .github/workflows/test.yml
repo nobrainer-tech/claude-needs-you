@@ -33,10 +33,6 @@ jobs:
             esac
           fi
           jq --version
-      - name: DIAG lock race (temporary)
-        if: runner.os == 'Linux'
-        continue-on-error: true
-        run: bash tests/race-diag.sh
       - name: Syntax
         run: for f in hooks/*.sh bin/nb-autopilot bin/needs-you-window bin/needs-you-scan tests/*.sh; do bash -n "$f" || exit 1; done
       - name: Manifests are valid JSON

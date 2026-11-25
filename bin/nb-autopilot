@@ -48,23 +48,17 @@ active() {
 cannot_write() { echo "nb-autopilot: could not write $STATE_FILE" >&2; exit 1; }
 # Apply a jq filter to the state file (an empty object when there is none).
 # Every writer (this command and the window's switches) takes the same lock
-# folder and has its own temp file, so no change is lost or undone. Without the
+# (ny_lock) and has its own temp file, so no change is lost or undone. Without the
 # lock nothing is written and the call fails.
 update() {
-  local lock="$STATE_FILE.lock" tmp cur='{}' ok=1 got=""
+  local lock="$STATE_FILE.lock" tmp cur='{}' ok=1
   mkdir -p "$DATA" 2>/dev/null
-  for _ in $(seq 1 50); do
-    if mkdir "$lock" 2>/dev/null; then got=1; break; fi
-    # A lock older than a minute belongs to a writer that crashed.
-    ny_stale "$lock" && rmdir "$lock" 2>/dev/null
-    sleep 0.1
-  done
-  [ -n "$got" ] || return 1
+  ny_lock "$lock" 50 0.1 || return 1
   [ -s "$STATE_FILE" ] && cur=$(cat "$STATE_FILE" 2>/dev/null)
   tmp=$(mktemp "$DATA/.autopilot.XXXXXX" 2>/dev/null) &&
     printf '%s' "$cur" | jq "$@" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" 2>/dev/null && ok=0
   [ -n "${tmp:-}" ] && rm -f "$tmp" 2>/dev/null
-  rmdir "$lock" 2>/dev/null
+  ny_unlock "$lock"
   return "$ok"
 }
 
