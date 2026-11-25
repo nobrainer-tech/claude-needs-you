@@ -52,9 +52,11 @@ need this; Claude Code's own notifications are enough.
 - **Autopilot, per session or for all of them.** Tick "Autopilot" on a session
   and it stops waiting for you: it takes its own recommended answer, its plan
   is approved and its permission prompts are granted. Or press "Autopilot
-  until 08:00" before you leave. Every decision is logged. Merging, pushing,
-  deploying, publishing, sending, deleting, paying and anything with
-  credentials still wait for you. Autopilot answers from the next request on:
+  until 08:00" before you leave. It answers only while you are away from the
+  Mac (no keyboard or mouse for 5 minutes), so it never races you. Every
+  decision is logged. Merging, pushing, deploying, publishing, sending,
+  deleting, archiving, spending money and anything with credentials or account
+  access still wait for you. Autopilot answers from the next request on:
   a request that already waits when you tick it stays in the window, marked,
   until you open the session and answer it.
 
@@ -124,8 +126,11 @@ Before you trust it with a night:
   decision, the same as your click. It checks the request's text (the
   question, the plan, the command or tool and its input) for steps only you may
   take: merge, push, deploy, publish, release, send, email, post, delete,
-  `rm`, force, pay, refund, login, password, credential, secret, token, sudo,
-  commit, pull request, ssh, and a `curl` that sends data, in English and
+  `rm`, force, pay, refund, any spending (budgets, prices, amounts in USD, EUR,
+  PLN), archive, rename a repo, close a PR or issue, cancel, production,
+  migrations, imports, limits, keys and live mode, accounts, access and
+  sharing, privacy and tracking, login, password, credential, secret, token,
+  sudo, commit, pull request, ssh, and a `curl` that sends data, in English and
   Polish. Those wait for you. It is a word list, so it errs on the side of
   waiting.
 - The report shows the answer each session was told to take. What the session
@@ -134,8 +139,11 @@ Before you trust it with a night:
   recommendation is right.
 - No record, no answer: if a decision cannot be written to the log, autopilot
   does not answer and the request goes to the window instead.
+- Autopilot answers only while you are away: no keyboard or mouse input for
+  `NEEDS_YOU_AUTOPILOT_IDLE_MINUTES` (default 5). While you are at the Mac,
+  every request waits for you in the window.
 - Autopilot for all sessions ends at the time you set, at most 24 hours ahead.
-  A ticked session stays on autopilot until you untick it.
+  A ticked session stays on autopilot for a day at most, then goes off by itself.
 
 ## Settings
 
@@ -157,6 +165,7 @@ but a session only sees it if it started after the change.
 | `NEEDS_YOU_LANG` | A built-in translation of every text: `pl` (Polish). [Add yours](texts/). | English |
 | `NEEDS_YOU_IDLE_CMD` | A shell command to run when a request comes while you are away from the Mac, for example a message to your phone. It gets `NEEDS_YOU_MESSAGE`, `NEEDS_YOU_SESSION_TITLE`, `NEEDS_YOU_SESSION_ID`, and one line of text as `$1`. | none |
 | `NEEDS_YOU_IDLE_MINUTES` | Minutes without keyboard or mouse input that count as away | `10` |
+| `NEEDS_YOU_AUTOPILOT_IDLE_MINUTES` | Autopilot answers only after this many minutes without keyboard or mouse input; `0` answers at once | `5` |
 | `NEEDS_YOU_WINDOW` | `0` turns the window off: a banner or a dialog per request instead | `1` |
 
 Any single text can also be set on its own (it wins over the translation):
@@ -241,7 +250,7 @@ Merge it with the hooks you already have. Then run
 
 ```bash
 bash tests/test.sh            # the inbox: 61 checks
-bash tests/autopilot-test.sh  # autopilot: 77 checks
+bash tests/autopilot-test.sh  # autopilot: 99 checks
 bash tests/scan-test.sh       # sessions that already wait: 24 checks
 bash tests/window-test.sh     # builds the window and renders it to a PNG
 ```

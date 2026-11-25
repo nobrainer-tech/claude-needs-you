@@ -13,17 +13,30 @@
 # An end time more than a day away is not a real setting (nb-autopilot never
 # writes one), so it counts as off.
 
+# A ticked session stays on autopilot for a day at most, like autopilot for all.
 NOW=$(date +%s)
 AP=$(jq -r --arg id "$SID" --argjson now "$NOW" '
-  if ((.sessions // {})[$id] // {}) | ((.periods // []) | length > 0 and .[-1][1] == null) then "this session"
+  if ((.sessions // {})[$id] // {}) | ((.periods // []) | length > 0 and .[-1][1] == null
+       and ($now - (.[-1][0] // 0)) < 86400) then "this session"
   elif (.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400 then "until \(.until)"
   else empty end' "$DATA/autopilot.json" 2>/dev/null)
+
+# Autopilot answers only while the owner is away: no keyboard or mouse input
+# for NEEDS_YOU_AUTOPILOT_IDLE_MINUTES (default 5; 0 answers at once). While you
+# are at the Mac, a request waits for you in the window, autopilot or not.
+autopilot_owner_away() {
+  local minutes="${NEEDS_YOU_AUTOPILOT_IDLE_MINUTES:-5}" idle_ns
+  [ "$minutes" = 0 ] && return 0
+  idle_ns=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/HIDIdleTime/ {print $NF; exit}')
+  [ -n "$idle_ns" ] || return 0
+  [ "$(( idle_ns / 60000000000 ))" -ge "$minutes" ] 2>/dev/null
+}
 
 # Steps only the owner may take, in English and Polish: merging, pushing,
 # deploying, publishing or sending, deleting, paying, logins and secrets,
 # permissions, commits and pull requests. Checked in the question, its options
 # (labels and descriptions) and suggested answers, the plan, and a permission's tool and whole input.
-OWNER_ONLY='merg|push|deploy|publish|release|delet|drop|remove|\brm\b|truncate|reset --hard|--force|purchas|(\b|_)pay|refund|login|log in|password|credential|permission|secret|token|sudo|(\b|_)send(\b|_)|e-?mail\b|(\b|_)post(\b|_)|tweet|commit|pull request|gh pr|gh release|npm publish|vercel|curl[^|;]*(-X|--data|-d |-F )|\bssh\b|\bscp\b|scal|wypchn|wdro|opublik|publikac|wyślij|usu[nń]|kasow|zapła|płatno|hasł|zalog|uprawnie|zgod'
+OWNER_ONLY='merg|push|deploy|archiv|rename[a-z ]*repo|close (the )?(pr|pull|issue)|\bcancel|budget|spend|\b(usd|eur|pln)\b|[$€£][0-9]|[0-9] ?(zł|usd|eur|pln)\b|invoice|billing|production|migrat|account|\bpr ?#|archiwiz|nazw[ęy] repo|anul[ouj]|klucz|\bkeys?\b|tryb live|live mode|\bprice|\bcen[aęyo]\b|dostęp|access|udostępn|\bshare|\bimport|\blimit|wgra|polityk|privacy|\bga4\b|tracking|usuw|budżet|wydat|koszt|faktur|produkcj|konto|konta|publish|release|delet|drop|remove|\brm\b|truncate|reset --hard|--force|purchas|(\b|_)pay|refund|login|log in|password|credential|permission|secret|token|sudo|(\b|_)send(\b|_)|e-?mail\b|(\b|_)post(\b|_)|tweet|commit|pull request|gh pr|gh release|npm publish|vercel|curl[^|;]*(-X|--data|-d |-F )|\bssh\b|\bscp\b|scal|wypchn|wdro|opublik|publikac|wyślij|usu[nń]|kasow|zapła|płatno|hasł|zalog|uprawnie|zgod'
 
 autopilot_owner_only() {
   printf '%s' "$INPUT" | jq -e --arg re "$OWNER_ONLY" --arg ev "$EVENT" '
@@ -47,6 +60,7 @@ autopilot_decide() {  # decision text, hook output JSON
 
 autopilot() {
   [ -n "$AP" ] || return 1
+  autopilot_owner_away || return 1
   autopilot_owner_only && return 1
   local decision how reason pick
   case "$EVENT:$TOOL" in
@@ -83,7 +97,7 @@ autopilot() {
       fi ;;
     *) return 1 ;;
   esac
-  reason="Autopilot is on ($AP): the owner is away and will not answer. Never decide these yourself, even when they are your recommendation: logins or passwords, payments or purchases, merging, pushing or deploying, publishing or sending anything to other people, deleting data, irreversible production changes, granting permissions. For such a step: skip it, finish the rest and leave the question in your final message. For everything else: $how This decision is logged for the owner's morning report."
+  reason="Autopilot is on ($AP): the owner is away and will not answer. Never decide these yourself, even when they are your recommendation: logins or passwords, payments, purchases or any spending (ad budgets included), merging, pushing or deploying, publishing or sending anything to other people, deleting, archiving, renaming or closing anything, cancelling runs, production changes and migrations, granting permissions or account access. For such a step: skip it, finish the rest and leave the question in your final message. For everything else: $how This decision is logged for the owner's morning report."
   autopilot_decide "$decision" "$(jq -n --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}')"
 }
