@@ -38,7 +38,7 @@ case "${OSTYPE:-}" in
     jq() {
       local a
       for a in "$@"; do
-        case "$a" in -[!-]*n*) MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' ny_jq "$@"; return ;; esac
+        case "$a" in --*) ;; -*n*) MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' ny_jq "$@"; return ;; esac
       done
       ny_jq "$@"
     } ;;

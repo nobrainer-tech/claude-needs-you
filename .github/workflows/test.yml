@@ -33,18 +33,6 @@ jobs:
             esac
           fi
           jq --version
-      - name: DIAG path conversion (temporary)
-        if: runner.os == 'Windows'
-        run: |
-          echo "OSTYPE=$OSTYPE"; jq --version
-          echo "plain=[$(jq -nr --arg x /work/a '$x')]"
-          echo "nopath=[$(MSYS_NO_PATHCONV=1 jq -nr --arg x /work/a '$x')]"
-          echo "excl=[$(MSYS2_ARG_CONV_EXCL='*' jq -nr --arg x /work/a '$x')]"
-          . hooks/platform.sh
-          echo "type=[$(type -t jq)] bin=[$NY_JQ_BINARY] wrap=[$(jq -nr --arg x /work/a '$x')]"
-          f() { command jq -nr --arg x /work/a '$x'; }
-          echo "func-prefix=[$(MSYS_NO_PATHCONV=1 f)]"
-          bash -c 'echo "script: OSTYPE=$OSTYPE"'
       - name: Syntax
         run: for f in hooks/*.sh bin/nb-autopilot bin/needs-you-window bin/needs-you-scan tests/*.sh; do bash -n "$f" || exit 1; done
       - name: Manifests are valid JSON
