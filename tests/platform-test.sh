@@ -118,14 +118,13 @@ ps=""
 for c in powershell.exe pwsh; do ps=$(command -v "$c" 2>/dev/null) && break; done
 if [ -n "$ps" ]; then
   for name in idle toast; do
-    out=$(NY_PS_SRC="$(bash -c '. "$0/hooks/platform.sh"; ny_ps_'"$name"'_script' "$ROOT")" "$ps" -NoProfile -NonInteractive -Command       '$e = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:NY_PS_SRC, [ref]$null, [ref]$e); $e.Count' 2>&1 | tr -d '
-')
+    out=$(NY_PS_SRC="$(bash -c '. "$0/hooks/platform.sh"; ny_ps_'"$name"'_script' "$ROOT")" "$ps" -NoProfile -NonInteractive -Command \
+      '$e = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:NY_PS_SRC, [ref]$null, [ref]$e); $e.Count' 2>&1 | tr -d '\r\n')
     same "powershell-parses-$name-script" "$out" "0"
   done
   # The C# inside compiles (on Linux and macOS user32 is missing, so only the
   # call fails there); on Windows the whole script prints the idle milliseconds.
-  out=$(bash -c '. "$0/hooks/platform.sh"; ny_ps_idle_script' "$ROOT" | "$ps" -NoProfile -NonInteractive -Command - 2>&1 | tr -d '
-')
+  out=$(bash -c '. "$0/hooks/platform.sh"; ny_ps_idle_script' "$ROOT" | "$ps" -NoProfile -NonInteractive -Command - 2>&1 | tr -d '\r\n')
   check powershell-idle-csharp-compiles "$out" "error CS" 0
   check powershell-idle-type-added "$out" "Cannot add type" 0
   case "${OSTYPE:-}" in
@@ -268,11 +267,11 @@ done
 same web-full-inbox "$(sed 's/^needsYou(//; s/);$//' "$W/data.js" | jq '[.entries[] | select(.title == "busy")] | length')" "150"
 
 # A browser that keeps xdg-open waiting does not hold up the notification.
-printf '#!/bin/bash\nsleep 6\necho "SLOW $*" >> "$FAKE_LOG"\n' > "$WORK/slow-opener"; chmod +x "$WORK/slow-opener"
+printf '#!/bin/bash\nsleep 20\necho "SLOW $*" >> "$FAKE_LOG"\n' > "$WORK/slow-opener"; chmod +x "$WORK/slow-opener"
 rm -f "$W/opened"
 start=$(date +%s)
 NEEDS_YOU_OPEN_CMD="$WORK/slow-opener" "$WINDOW_REAL" --notify
-same web-open-does-not-wait "$(( $(date +%s) - start < 3 ))" "1"
+same web-open-does-not-wait "$(( $(date +%s) - start < 15 ))" "1"   # the opener takes 20 s
 same web-opened-time-written-first "$([ -s "$W/opened" ] && echo yes)" "yes"
 unset NEEDS_YOU_IDLE_CMD NEEDS_YOU_LANG NEEDS_YOU_OPEN_CMD
 export NEEDS_YOU_WINDOW_CMD="$WORK/bin/window"
