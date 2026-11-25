@@ -14,6 +14,9 @@ FAIL=0
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; FAIL=1; }
 
+if [ "$(uname -s)" != Darwin ]; then
+  echo "SKIP the Swift window is for macOS; Linux and Windows use the page (tests/platform-test.sh)"; exit 0
+fi
 if ! "$ROOT/bin/needs-you-window" --check; then
   echo "SKIP the Swift compiler is missing (xcode-select --install)"; exit 0
 fi
@@ -33,11 +36,15 @@ entry local_b 4 "📣 Marketing" landing-page "🟡 landing-page | ✍️ Pricin
 entry local_c 9 "🧩 Platform" infra "🟠 infra | 🔐 Rotate staging keys" "Permission needed: Bash" false
 entry local_d 25 "📓 Docs" docs-site "✅ docs-site | 🔎 Search page" "Regenerate the search index too?" true
 entry local_old 1500 "" old "old" "older than a day" false
+# A terminal session: no link, a command that returns to it.
+jq -nc --argjson ts $((now - 6 * 60)) '{ts:$ts,session:"5f1c2d3e-cli",title:"api | night refactor",section:"",
+  project:"api",msg:"Split the parser into two files?",link:"",
+  resume:"cd \"/Users/ana/code/api\" && claude --resume 5f1c2d3e-cli",done:false}' > "$I/5f1c2d3e-cli.json"
 jq -nc --argjson u $((now + 6 * 3600)) '{until_epoch:$u,since_epoch:0,until:"08:00",sessions:{local_b:{title:"",periods:[[0,null]]},local_quiet:{title:"🟢 api | 🤖 Night refactor",periods:[[0,null]]}}}' \
   > "$HOME/.claude/needs-you/autopilot.json"
 
 out="${1:-$WORK/window.png}"
-if "$ROOT/bin/needs-you-window" --snapshot "$out" && [ "$(stat -f %z "$out")" -gt 20000 ]; then
+if "$ROOT/bin/needs-you-window" --snapshot "$out" && [ "$(wc -c < "$out")" -gt 20000 ]; then
   pass snapshot
 else
   fail snapshot

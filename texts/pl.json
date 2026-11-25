@@ -3,7 +3,7 @@
   "NEEDS_YOU_WAITING_COUNT": "czeka",
   "NEEDS_YOU_HANDLED": "załatwione",
   "NEEDS_YOU_EMPTY": "Żadna sesja na Ciebie nie czeka.",
-  "NEEDS_YOU_HINT": "Kliknij sesję, aby ją otworzyć. Autopilot odpowiada za tę sesję jej własną rekomendacją, zatwierdza też plany i zgody; scalenia, push, wdrożenia, usuwanie, płatności i hasła czekają na Ciebie.",
+  "NEEDS_YOU_HINT": "Kliknij sesję, aby ją otworzyć; sesja z terminala kopiuje polecenie powrotu do niej. Autopilot odpowiada za tę sesję jej własną rekomendacją, zatwierdza też plany i zgody; scalenia, push, wdrożenia, usuwanie, płatności i hasła czekają na Ciebie.",
   "NEEDS_YOU_CLEAR": "Wyczyść załatwione",
   "NEEDS_YOU_ROW_AUTOPILOT": "Autopilot",
   "NEEDS_YOU_ROW_ON_AUTOPILOT": "Na autopilocie: ta sesja sama odpowiada na swoje pytania.",
@@ -17,5 +17,11 @@
   "NEEDS_YOU_BLOCKED": "Zablokowana akcja",
   "NEEDS_YOU_WAITING": "Sesja czeka na Ciebie",
   "NEEDS_YOU_OPEN": "Otwórz",
-  "NEEDS_YOU_LATER": "Później"
+  "NEEDS_YOU_LATER": "Później",
+  "NEEDS_YOU_COPY": "Skopiuj polecenie",
+  "NEEDS_YOU_COPIED": "Skopiowane. Wklej w terminalu.",
+  "NEEDS_YOU_RESUME_HINT": "Wróć do niej w terminalu:",
+  "NEEDS_YOU_OPEN_APP": "Otwórz w Claude",
+  "NEEDS_YOU_SHOW_HANDLED": "Pokaż załatwione",
+  "NEEDS_YOU_WEB_HINT": "Sesję aplikacji Claude otwiera jej przycisk. Sesję z terminala: skopiuj polecenie i uruchom je w terminalu. Przełączniki autopilota kopiują polecenie: uruchom je w terminalu albo napisz dowolnej sesji „autopilot do 8”."
 }

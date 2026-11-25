@@ -25,10 +25,22 @@ func logo(_ name: String) -> NSImage? {
   NSImage(contentsOfFile: (assetsDir as NSString).appendingPathComponent("img/\(name)"))
 }
 
+func label(_ s: String, _ f: NSFont, _ color: NSColor, lines: Int = 1) -> NSTextField {
+  let l = NSTextField(wrappingLabelWithString: s)
+  l.font = f
+  l.textColor = color
+  l.maximumNumberOfLines = lines
+  l.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
+  l.cell?.truncatesLastVisibleLine = true
+  l.isSelectable = false
+  return l
+}
+
 // --- Data --------------------------------------------------------------------
 
 struct Entry {
   let file, session, title, section, project, msg, link: String
+  var resume = ""   // a terminal session: the command that returns to it
   let ts, doneTs: TimeInterval
   let done: Bool
 }
@@ -61,7 +73,7 @@ func loadEntries() -> [Entry] {
     }
     out.append(Entry(file: path, session: str(j["session"]), title: str(j["title"]),
                      section: str(j["section"]), project: str(j["project"]), msg: str(j["msg"]),
-                     link: str(j["link"]), ts: ts, doneTs: num(j["done_ts"]),
+                     link: str(j["link"]), resume: str(j["resume"]), ts: ts, doneTs: num(j["done_ts"]),
                      done: (j["done"] as? Bool) ?? false))
   }
   return out.sorted {
@@ -118,6 +130,13 @@ func markDone(_ e: Entry) {
     j["done_ts"] = Int(Date().timeIntervalSince1970)
     writeJSON(j, e.file)
   }
+}
+
+// A terminal session has no link: its command goes to the clipboard instead.
+func copyResume(_ e: Entry) -> Bool {
+  guard e.link.isEmpty, !e.resume.isEmpty else { return false }
+  NSPasteboard.general.clearContents()
+  return NSPasteboard.general.setString(e.resume, forType: .string)
 }
 
 func runAutopilot(_ arguments: [String]) {

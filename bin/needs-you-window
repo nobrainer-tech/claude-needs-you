@@ -1,22 +1,112 @@
 #!/bin/bash
 # needs-you-window: open the needs-you window, or do nothing if it is open.
 #
-# The window is a small Swift program (app/*.swift). It is built
-# once with the Swift compiler of the Xcode Command Line Tools and cached per
-# source version in ~/Library/Caches/needs-you/bin.
+# macOS: a small Swift program (app/*.swift), built once with the Swift
+# compiler of the Xcode Command Line Tools and cached per source version in
+# ~/Library/Caches/needs-you/bin.
+# Linux and Windows (or NEEDS_YOU_WEB=1): a local page, app/web/index.html,
+# copied with its fonts to ~/.claude/needs-you/web/ and opened in the default
+# browser. No server and no network: the page reloads data.js next to it every
+# two seconds, and this script rewrites data.js from the inbox.
 #
-#   needs-you-window            open it (one window per user; a second call is a no-op)
-#   needs-you-window --check    exit 0 when the window can be shown on this Mac
-#   needs-you-window --build    build it now and print the binary's path
-#   needs-you-window --snapshot OUT.png   render the current inbox to a PNG
+#   needs-you-window            open it (macOS: one window per user, a second call is a no-op)
+#   needs-you-window --check    exit 0 when the window can be shown here
+#   needs-you-window --notify   a request arrived: open it if it is not open
+#                               (the page: unless it was opened in the last
+#                               NEEDS_YOU_REOPEN_MINUTES, default 120)
+#   needs-you-window --refresh  the page only: rewrite its data
+#   needs-you-window --build    macOS: build it now and print the binary's path
+#   needs-you-window --snapshot OUT.png   macOS: render the current inbox to a PNG
 # https://github.com/nobrainer-tech/claude-needs-you
 set -u
-PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin"
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+ROOT="$(cd "$(dirname "${0//\\//}")/.." && pwd)"
 DATA="$HOME/.claude/needs-you"
 CACHE="$HOME/Library/Caches/needs-you/bin"
+# shellcheck source=hooks/platform.sh
+. "$ROOT/hooks/platform.sh"
 # Texts and settings, the same as the hook gives the window it opens.
+# shellcheck source=hooks/settings.sh
 command -v jq >/dev/null 2>&1 && . "$ROOT/hooks/settings.sh"
+
+# --- The page (Linux, Windows) -------------------------------------------------
+
+WEB="$DATA/web"
+# The texts the page shows; nothing else of the settings goes into it.
+TEXT_KEYS='TITLE WAITING_COUNT HANDLED EMPTY WEB_HINT CLEAR SHOW_HANDLED ROW_AUTOPILOT ROW_ON_AUTOPILOT ROW_AP_PENDING
+  AP_ON AP_OFF AP_START AP_STOP OPEN_APP COPY COPIED RESUME_HINT'
+
+# Copy the page, its fonts and logo when they are missing or changed.
+web_install() {
+  local f
+  mkdir -p "$WEB/fonts" "$DATA/inbox" || return 1
+  cmp -s "$ROOT/app/web/index.html" "$WEB/index.html" || cp "$ROOT/app/web/index.html" "$WEB/index.html" || return 1
+  cmp -s "$ROOT/app/img/logo-64.png" "$WEB/logo-64.png" || cp "$ROOT/app/img/logo-64.png" "$WEB/logo-64.png"
+  for f in "$ROOT"/app/fonts/*.ttf; do
+    cmp -s "$f" "$WEB/fonts/${f##*/}" || cp "$f" "$WEB/fonts/"
+  done
+  return 0
+}
+
+# data.js: needsYou({...}) with the entries of the last day, autopilot and texts.
+web_refresh() {
+  command -v jq >/dev/null 2>&1 || return 1
+  web_install || return 1
+  local now f entries ap texts tmp ok
+  now=$(date +%s)
+  # One entry per line (every writer writes compact JSON); a broken file is skipped.
+  entries=$(for f in "$DATA"/inbox/*.json; do [ -f "$f" ] && { tr -d '\r\n' < "$f"; echo; }; done \
+    | jq -nRc --argjson now "$now" '[inputs | fromjson? | select(type == "object" and ($now - (.ts // 0)) <= 86400)
+        | {ts, session, title, section, project, msg, link, resume, done, done_ts}]' 2>/dev/null)
+  [ -n "$entries" ] || entries='[]'
+  ap=$(jq -c --argjson now "$now" '{
+      until: (if (.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400 then .until else null end),
+      sessions: ((.sessions // {}) | with_entries(select((.value.periods // []) | length > 0 and .[-1][1] == null))
+                 | map_values(.title // ""))}' "$DATA/autopilot.json" 2>/dev/null)
+  [ -n "$ap" ] || ap='{"until":null,"sessions":{}}'
+  # shellcheck disable=SC2086
+  texts=$(jq -nc --arg keys "$(printf '%s ' $TEXT_KEYS)" '
+    ($keys | split(" ") | map(select(. != ""))) as $k
+    | $ENV | with_entries(select(.key | startswith("NEEDS_YOU_")) | .key |= ltrimstr("NEEDS_YOU_")
+             | select(.key as $x | $k | index($x)) | select(.value != ""))')
+  [ -n "$texts" ] || texts='{}'
+  tmp="$WEB/data.js.tmp.$$"
+  jq -nr --argjson e "$entries" --argjson ap "$ap" --argjson t "$texts" --argjson now "$now" \
+     --arg cmd "$ROOT/bin/nb-autopilot" --arg os "$NY_OS" \
+     '{generated: $now, os: $os, autopilot_cmd: $cmd, entries: $e, autopilot: $ap, texts: $t}
+      | "needsYou(\(tojson));"' > "$tmp" 2>/dev/null && mv "$tmp" "$WEB/data.js"
+  ok=$?
+  rm -f "$tmp"
+  return "$ok"
+}
+
+web_open() {
+  ny_open "$WEB/index.html" </dev/null >/dev/null 2>&1 || return 1
+  date +%s > "$WEB/opened"
+}
+
+# Opened lately: the page reloads its data by itself, so a second tab adds nothing.
+web_opened_lately() {
+  local minutes="${NEEDS_YOU_REOPEN_MINUTES:-120}" at
+  case "$minutes" in ''|*[!0-9]*) minutes=120 ;; esac
+  at=$(cat "$WEB/opened" 2>/dev/null)
+  case "$at" in ''|*[!0-9]*) return 1 ;; esac
+  [ $(( $(date +%s) - at )) -lt $(( minutes * 60 )) ]
+}
+
+if ny_web_inbox; then
+  case "${1:-}" in
+    --check) [ -n "$(ny_opener)" ] ;;
+    --refresh) web_refresh ;;
+    --notify) web_refresh || exit 1; web_opened_lately || web_open ;;
+    --build|--snapshot) echo "needs-you-window: $1 is for the macOS window" >&2; exit 1 ;;
+    *) web_refresh || { echo "needs-you-window: jq is required" >&2; exit 1; }
+       web_open || { echo "needs-you-window: nothing opens $WEB/index.html (install xdg-utils)" >&2; exit 1; } ;;
+  esac
+  exit
+fi
+
+# --- The window (macOS) ----------------------------------------------------------
 
 # Without the Command Line Tools, /usr/bin/swiftc is a stub that offers to
 # install them, so ask xcrun first and never run the stub.
@@ -52,10 +142,13 @@ case "${1:-}" in
     have_swiftc ;;
   --build)
     build ;;
+  --refresh)
+    exit 0 ;;
   --snapshot)
     bin=$(build) || exit 1
     exec "$bin" --inbox "$DATA/inbox" --autopilot "$ROOT/bin/nb-autopilot" --assets "$ROOT/app" --snapshot "${2:?output path}" ;;
   *)
+    # --notify too: the window refreshes itself, so opening it is all.
     bin=$(build) || { echo "needs-you-window: the Swift compiler is missing (xcode-select --install)" >&2; exit 1; }
     mkdir -p "$DATA/inbox"
     nohup "$bin" --inbox "$DATA/inbox" --autopilot "$ROOT/bin/nb-autopilot" --assets "$ROOT/app" </dev/null >/dev/null 2>&1 &

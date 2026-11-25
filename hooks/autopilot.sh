@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Autopilot part of hooks/needs-you.sh (sourced; uses its variables: INPUT,
-# EVENT, TOOL, MSG, SID, TITLE, DATA and field()).
+# EVENT, TOOL, MSG, SID, TITLE, DATA and field(), and hooks/platform.sh).
 #
 # While autopilot is on for this session (its switch in the window) or for all
 # sessions (until a set time), the owner is away. Then:
@@ -18,6 +18,17 @@ AP=$(jq -r --arg id "$SID" --argjson now "$NOW" '
   if ((.sessions // {})[$id] // {}) | ((.periods // []) | length > 0 and .[-1][1] == null) then "this session"
   elif (.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400 then "until \(.until)"
   else empty end' "$DATA/autopilot.json" 2>/dev/null)
+
+# Autopilot answers only while the owner is away: no keyboard or mouse input
+# for NEEDS_YOU_AUTOPILOT_IDLE_MINUTES (default 5; 0 answers at once). While you
+# are at the computer, or when this system cannot tell (hooks/platform.sh), a
+# request waits for you in the window, autopilot or not.
+autopilot_owner_away() {
+  local minutes="${NEEDS_YOU_AUTOPILOT_IDLE_MINUTES:-5}"
+  case "$minutes" in ''|*[!0-9]*) minutes=5 ;; esac
+  [ "$minutes" = 0 ] && return 0
+  ny_owner_away "$minutes"
+}
 
 # Steps only the owner may take, in English and Polish: merging, pushing,
 # deploying, publishing or sending, deleting, paying, logins and secrets,
@@ -38,7 +49,7 @@ autopilot_owner_only() {
 # return 1 and the request goes to the inbox as usual.
 autopilot_decide() {  # decision text, hook output JSON
   mkdir -p "$DATA" 2>/dev/null
-  jq -nc --argjson ts "$NOW" --arg time "$(date '+%F %H:%M')" --arg session "$SID" \
+  jq -nc --argjson ts "$NOW" --arg time "$(date '+%Y-%m-%d %H:%M')" --arg session "$SID" \
      --arg title "$TITLE" --arg tool "$TOOL" --arg decision "$1" \
      '{ts:$ts,time:$time,session:$session,title:$title,tool:$tool,decision:$decision}' \
      2>/dev/null >> "$DATA/decisions.jsonl" || return 1
@@ -47,6 +58,7 @@ autopilot_decide() {  # decision text, hook output JSON
 
 autopilot() {
   [ -n "$AP" ] || return 1
+  autopilot_owner_away || return 1
   autopilot_owner_only && return 1
   local decision how reason pick
   case "$EVENT:$TOOL" in

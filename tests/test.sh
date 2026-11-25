@@ -163,14 +163,33 @@ expect window-switched-off "WINDOW" 0
 expect window-off-dialog "DIALOG" 1
 unset NEEDS_YOU_WINDOW
 
-# A terminal session: titled by its folder, no link.
+# A terminal session (Claude Code CLI): titled by its folder, no link, and the
+# command that returns to it, which the dialog copies.
 setup terminal
 unset CLAUDE_CODE_HOST_SESSION_ID
-export FAKE_NO_WINDOW=1
+export FAKE_NO_WINDOW=1 FAKE_ANSWER="Copy the command"
 fire "Question I"; sleep 1
-expect terminal-title "DIALOG [Claude needs you: my-repo] Question I (labels: 0)" 1
+expect terminal-title "DIALOG [Claude needs you: my-repo] Question I" 1
+expect terminal-dialog-copy-button 'cd "/work/my-repo" && claude --resume cli-1 (labels: 2)' 1
+expect terminal-copies-resume 'PBCOPY cd "/work/my-repo" && claude --resume cli-1' 1
 expect terminal-no-open "OPEN" 0
 same terminal-entry "$(entry .link cli-1)" ""
+same terminal-entry-resume "$(entry .resume cli-1)" 'cd "/work/my-repo" && claude --resume cli-1'
+same terminal-entry-cwd "$(entry .cwd cli-1)" "/work/my-repo"
+# Its name from the transcript: the newest /rename, else the summary.
+T="$HOME/t.jsonl"
+printf '%s\n' '{"type":"summary","summary":"Fix the flaky test"}' '{"type":"user","message":{"content":"hi"}}' > "$T"
+jq -nc --arg t "$T" '{hook_event_name:"PreToolUse", tool_name:"AskUserQuestion", session_id:"cli-2",
+  cwd:"/work/my-repo", transcript_path:$t, tool_input:{questions:[{question:"Q?"}]}}' | "$HOOK"; sleep 1
+same terminal-title-from-summary "$(entry .title cli-2)" "Fix the flaky test"
+printf '%s\n' '{"type":"custom-title","customTitle":"checkout | retry","sessionId":"cli-2"}' >> "$T"
+jq -nc --arg t "$T" '{hook_event_name:"PreToolUse", tool_name:"AskUserQuestion", session_id:"cli-2",
+  cwd:"/work/my-repo", transcript_path:$t, tool_input:{questions:[{question:"Q2?"}]}}' | "$HOOK"; sleep 1
+same terminal-title-from-rename "$(entry .title cli-2)" "checkout | retry"
+# A folder with a quote or a dollar sign is single-quoted.
+jq -nc '{hook_event_name:"PreToolUse", tool_name:"AskUserQuestion", session_id:"cli-3",
+  cwd:"/work/it'"'"'s $HOME", tool_input:{questions:[{question:"Q3?"}]}}' | "$HOOK"; sleep 1
+same terminal-resume-quoted "$(entry .resume cli-3)" "cd '/work/it'\\''s \$HOME' && claude --resume cli-3"
 
 # --- Other events ------------------------------------------------------------
 
