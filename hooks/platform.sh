@@ -25,14 +25,24 @@ case "$(uname -s 2>/dev/null)" in
 esac
 
 # A native jq.exe under Git Bash ends its lines with CR LF. jq 1.7 has --binary
-# for that; an older one is piped through tr. Only on Windows shells.
+# for that; an older one is piped through tr. Git Bash also rewrites every
+# argument of a native program that looks like a POSIX path, so a question
+# "/deploy now?" would reach jq as "C:/Program Files/Git/deploy now?". A jq
+# call with -n reads no file, so its arguments are all text and pass unchanged.
+# Only on Windows shells.
 case "${OSTYPE:-}" in
   msys*|cygwin*)
-    if command jq -b -n 1 >/dev/null 2>&1; then
-      jq() { command jq -b "$@"; }
-    else
-      jq() { command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"; }
-    fi ;;
+    NY_JQ_BINARY=""
+    command jq -b -n 1 >/dev/null 2>&1 && NY_JQ_BINARY=1
+    jq() {
+      local a conv="${MSYS2_ARG_CONV_EXCL:-}"
+      for a in "$@"; do case "$a" in -[!-]*n*) conv='*'; break ;; esac; done
+      if [ -n "$NY_JQ_BINARY" ]; then
+        MSYS2_ARG_CONV_EXCL="$conv" command jq -b "$@"
+      else
+        MSYS2_ARG_CONV_EXCL="$conv" command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"
+      fi
+    } ;;
 esac
 
 # GNU stat (Linux, Git Bash) or BSD stat (macOS).

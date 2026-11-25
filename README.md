@@ -14,6 +14,7 @@
 
 <p align="center">
   <a href="#install">Install</a> ·
+  <a href="#macos-linux-and-windows">macOS, Linux and Windows</a> ·
   <a href="#what-autopilot-answers">What autopilot answers</a> ·
   <a href="https://github.com/nobrainer-tech/nobrainer-tech-flow">Get NoBrainer Tech Flow</a>
 </p>
@@ -39,7 +40,9 @@ need this; Claude Code's own notifications are enough.
 - **One list, newest on top.** Each row shows when the session asked, its
   sidebar section, its project, its title and the question. A newer question
   from the same session replaces the older one.
-- **One click opens the session** in the Claude desktop app.
+- **One click opens the session** in the Claude desktop app. A session in a
+  terminal (the Claude Code CLI or an IDE extension) shows the command that
+  returns to it, `cd <folder> && claude --resume <id>`, and one click copies it.
 - **Nothing slips through a restart.** Open the Claude app the next morning and
   the window lists every session that was still waiting for you when you
   closed it.
@@ -54,15 +57,21 @@ need this; Claude Code's own notifications are enough.
   is approved and its permission prompts are granted. Or press "Autopilot
   until 08:00" before you leave. Every decision is logged. Merging, pushing,
   deploying, publishing, sending, deleting, paying and anything with
-  credentials still wait for you. Autopilot answers from the next request on:
+  credentials still wait for you. It answers only while you are away (no
+  keyboard or mouse for 5 minutes), so it never races you. Autopilot answers from the next request on:
   a request that already waits when you tick it stays in the window, marked,
   until you open the session and answer it.
 
 ## Install
 
-You need macOS, Claude Code, `jq` (recent macOS includes it; otherwise
-`brew install jq`) and the Xcode Command Line Tools for the window
-(`xcode-select --install`; you have them if `git` works).
+You need Claude Code (in the terminal, an IDE or the Claude desktop app) and
+`jq`. The rest depends on your system:
+
+| System | Required | For the window | Optional |
+|---|---|---|---|
+| macOS | `jq` (macOS 15 and later include it; otherwise `brew install jq`) | Xcode Command Line Tools (`xcode-select --install`; you have them if `git` works) | `brew install terminal-notifier` |
+| Linux | `sudo apt install jq` (`dnf install jq`, `pacman -S jq`) | a browser and `xdg-open` (`xdg-utils`) | `libnotify-bin` (notifications), `xprintidle` (autopilot on X11) |
+| Windows | Git for Windows (Claude Code runs hooks in its Git Bash) and `winget install jqlang.jq` | a browser | nothing: notifications and idle time use the built-in PowerShell |
 
 In Claude Code:
 
@@ -76,7 +85,43 @@ request builds the window once (a few seconds); after that it opens at once. To
 check the setup, ask any session: `test the needs-you window`.
 
 Without the Swift compiler the plugin falls back to a `terminal-notifier` banner
-(`brew install terminal-notifier`) or a dialog per request.
+(`brew install terminal-notifier`) or a dialog per request. `nb-autopilot doctor`
+lists what your system has and what is missing, with the install command.
+
+**Why `jq`.** Every request is a JSON document, and the hook reads and writes
+JSON on every call. Parsing it in plain shell would break on the first quote or
+newline in a question. `jq` is one small binary with no dependencies on all
+three systems: built into macOS 15 and later, in every Linux distribution's
+packages, and on Windows through `winget`, Scoop or Chocolatey. Without it the
+hook does nothing and never breaks a session.
+
+## macOS, Linux and Windows
+
+The inbox, the autopilot and their rules are the same everywhere. What differs:
+
+| | macOS | Linux | Windows (Git Bash) |
+|---|---|---|---|
+| The window | a native window (Swift) | a local page in your browser | a local page in your browser |
+| When a request arrives | the window comes up (or a banner, or a dialog) | a notification (`notify-send`), and the page opens if it has not been opened in the last 2 hours | a toast notification (Windows PowerShell; a tray balloon on PowerShell 7), and the page as on Linux |
+| Desktop-app session | opens on a click | opens on a click (best effort, see Limits) | opens on a click (best effort) |
+| Terminal session | a click copies `cd <folder> && claude --resume <id>` | the page has a Copy button | the page has a Copy button |
+| Autopilot switches | in the window | the page copies the command (`nb-autopilot …`) for you to run, or tell any session `autopilot until 8` | as on Linux |
+| Away from the computer (autopilot, `NEEDS_YOU_IDLE_CMD`) | `ioreg` | `xprintidle` on X11, GNOME's idle monitor (`gdbus`) on Wayland; other desktops: unknown | PowerShell `GetLastInputInfo` |
+| Desktop app's data (titles, sidebar sections) | `~/Library/Application Support/Claude` | `~/.config/Claude` (best effort) | `%APPDATA%\Claude` (best effort) |
+
+**The page** is `~/.claude/needs-you/web/index.html`: no server, no network
+and no file from outside that folder. It loads `data.js` next to it every two
+seconds, and the hook rewrites `data.js` whenever an entry changes. It uses the
+same NoBrainer Sans type and colours as the macOS window, in the light theme.
+Open it by hand with `needs-you-window`. A browser page cannot run commands,
+so its Autopilot buttons copy the command instead of running it.
+
+**When the idle time cannot be read** (a Linux desktop other than X11 or
+GNOME, a machine reached over SSH, Windows without a desktop session),
+autopilot does not answer: it treats you as present and every request waits for
+you. `nb-autopilot doctor` says so. Set `NEEDS_YOU_IDLE_SECONDS_CMD` to a
+command that prints the idle seconds, or `NEEDS_YOU_AUTOPILOT_IDLE_MINUTES` to
+`0` to let autopilot answer at once.
 
 ## Use it
 
@@ -134,6 +179,10 @@ Before you trust it with a night:
   recommendation is right.
 - No record, no answer: if a decision cannot be written to the log, autopilot
   does not answer and the request goes to the window instead.
+- Autopilot answers only while you are away: no keyboard or mouse input for
+  `NEEDS_YOU_AUTOPILOT_IDLE_MINUTES` (default 5). While you are at the
+  computer, or when the system cannot tell, every request waits for you in the
+  window.
 - Autopilot for all sessions ends at the time you set, at most 24 hours ahead.
   A ticked session stays on autopilot until you untick it.
 
@@ -155,9 +204,15 @@ but a session only sees it if it started after the change.
 | Variable | What it does | Default |
 |---|---|---|
 | `NEEDS_YOU_LANG` | A built-in translation of every text: `pl` (Polish). [Add yours](texts/). | English |
-| `NEEDS_YOU_IDLE_CMD` | A shell command to run when a request comes while you are away from the Mac, for example a message to your phone. It gets `NEEDS_YOU_MESSAGE`, `NEEDS_YOU_SESSION_TITLE`, `NEEDS_YOU_SESSION_ID`, and one line of text as `$1`. | none |
-| `NEEDS_YOU_IDLE_MINUTES` | Minutes without keyboard or mouse input that count as away | `10` |
-| `NEEDS_YOU_WINDOW` | `0` turns the window off: a banner or a dialog per request instead | `1` |
+| `NEEDS_YOU_IDLE_CMD` | A shell command to run when a request comes while you are away from the computer, for example a message to your phone. It gets `NEEDS_YOU_MESSAGE`, `NEEDS_YOU_SESSION_TITLE`, `NEEDS_YOU_SESSION_ID`, and one line of text as `$1`. It does not run when the idle time is unknown. | none |
+| `NEEDS_YOU_IDLE_MINUTES` | Minutes without keyboard or mouse input that count as away, for `NEEDS_YOU_IDLE_CMD` | `10` |
+| `NEEDS_YOU_AUTOPILOT_IDLE_MINUTES` | Autopilot answers only after this many minutes without keyboard or mouse input; `0` answers at once, also when the idle time is unknown | `5` |
+| `NEEDS_YOU_IDLE_SECONDS_CMD` | A command that prints the seconds since your last input, for a system the plugin cannot read (for example KDE: `qdbus org.freedesktop.ScreenSaver /ScreenSaver GetSessionIdleTime`) | none |
+| `NEEDS_YOU_WINDOW` | `0` turns the window off: a banner, a notification or a dialog per request instead | `1` |
+| `NEEDS_YOU_WEB` | `1` uses the browser page on macOS too | `0` |
+| `NEEDS_YOU_REOPEN_MINUTES` | Linux and Windows: a request opens the page again only after this many minutes; an open page updates by itself | `120` |
+| `NEEDS_YOU_APP_DIR` | Where the Claude desktop app keeps its data, when it is not in the default place | per system |
+| `NEEDS_YOU_OPEN_CMD` | The program that opens the page and `claude://` links | `open`, `xdg-open`, `explorer.exe` |
 
 Any single text can also be set on its own (it wins over the translation):
 `NEEDS_YOU_TITLE` (`Claude needs you`), `NEEDS_YOU_WAITING_COUNT` (`waiting`),
@@ -166,8 +221,10 @@ Any single text can also be set on its own (it wins over the translation):
 `NEEDS_YOU_ROW_ON_AUTOPILOT`, `NEEDS_YOU_ROW_AP_PENDING`,
 `NEEDS_YOU_AP_START` (`Autopilot until`), `NEEDS_YOU_AP_STOP`,
 `NEEDS_YOU_AP_ON`, `NEEDS_YOU_AP_OFF`, `NEEDS_YOU_PLAN`,
-`NEEDS_YOU_PERMISSION`, `NEEDS_YOU_BLOCKED`, `NEEDS_YOU_WAITING`, and for the
-fallback dialog `NEEDS_YOU_OPEN` and `NEEDS_YOU_LATER`.
+`NEEDS_YOU_PERMISSION`, `NEEDS_YOU_BLOCKED`, `NEEDS_YOU_WAITING`,
+`NEEDS_YOU_RESUME_HINT`, `NEEDS_YOU_COPY`, `NEEDS_YOU_COPIED`, for the page
+`NEEDS_YOU_WEB_HINT`, `NEEDS_YOU_OPEN_APP` and `NEEDS_YOU_SHOW_HANDLED`, and for
+the fallback dialog `NEEDS_YOU_OPEN` and `NEEDS_YOU_LATER`.
 
 ## How it works
 
@@ -186,11 +243,19 @@ fallback dialog `NEEDS_YOU_OPEN` and `NEEDS_YOU_LATER`.
 - `UserPromptSubmit`, `PostToolUse` and `SessionEnd` mark a session's entry
   handled: you wrote to it, its own tool call finished, or it ended. The end-of-turn tool and subagents do
   not count.
-- The window is about 450 lines of Swift and AppKit in [`app/`](app), built once
-  with `swiftc` into `~/Library/Caches/needs-you/bin/`. It reads the inbox every
-  second, and a lock file keeps it to one window per user. No Electron, no
-  daemon, no network calls. It uses the NoBrainer Sans typeface (SIL Open Font
-  License, [`app/fonts/OFL.txt`](app/fonts/OFL.txt)).
+- A terminal session has no desktop-app record. Its title is the name you gave
+  it (`/rename`) or the summary in its transcript, else its project folder, and
+  its entry keeps the command that returns to it.
+- What differs per system is in one file,
+  [`hooks/platform.sh`](hooks/platform.sh): idle time, the desktop app's
+  folder, notifications, opening files and links, and the GNU or BSD flavour
+  of `date` and `stat`. A missing tool means "unknown", never a broken session.
+- On macOS the window is about 550 lines of Swift and AppKit in [`app/`](app),
+  built once with `swiftc` into `~/Library/Caches/needs-you/bin/`. It reads the
+  inbox every second, and a lock file keeps it to one window per user. On Linux
+  and Windows it is one page, [`app/web/index.html`](app/web/index.html). No
+  Electron, no daemon, no server, no network calls. Both use the NoBrainer Sans
+  typeface (SIL Open Font License, [`app/fonts/OFL.txt`](app/fonts/OFL.txt)).
 - Autopilot is a `PreToolUse` "deny" whose reason is the instruction above.
   State is `~/.claude/needs-you/autopilot.json` and the log `decisions.jsonl`.
   The log only grows: delete it when you no longer need it.
@@ -202,10 +267,23 @@ troubleshooting.
 
 ## Limits
 
-- macOS only.
-- The click-to-open link works for sessions of the Claude desktop app. A
-  session in a terminal is listed with its folder name and no link.
-- It runs while your Mac is awake and Claude Code is open.
+- Tested in CI on macOS, Ubuntu and Windows (Git Bash) with stand-ins for the
+  notifier, the browser and the idle tools. Notifications, the page in a real
+  browser and idle detection on a real Linux desktop or Windows machine have
+  not been tried by hand yet.
+- The Claude desktop app's folder on Windows (`%APPDATA%\Claude`) and Linux
+  (`~/.config/Claude`) follows the app's usual place but has not been checked
+  against the app there; set `NEEDS_YOU_APP_DIR` if titles and sidebar
+  sections are missing. Whether `claude://` links open the desktop app on
+  those systems depends on the app.
+- On Windows the hook relies on Claude Code running it in Git Bash. Without Git
+  Bash, Claude Code runs hooks in PowerShell and this plugin does nothing.
+- The page cannot tell whether it is still open in your browser, so a request
+  opens it again after `NEEDS_YOU_REOPEN_MINUTES` (default 2 hours), and its
+  Autopilot buttons copy a command instead of running it.
+- Sessions that already waited before they ran again are found for the Claude
+  desktop app only; a terminal session shows up with its next request.
+- It runs while your computer is awake and Claude Code is open.
 - Any session that can run shell commands can switch autopilot on. The skill
   tells sessions to do it only when you ask.
 - Built and tested with Claude Code 2.1.321.
@@ -240,14 +318,17 @@ Merge it with the hooks you already have. Then run
 ## Tests
 
 ```bash
-bash tests/test.sh            # the inbox: 61 checks
-bash tests/autopilot-test.sh  # autopilot: 77 checks
+bash tests/test.sh            # the inbox: 68 checks
+bash tests/autopilot-test.sh  # autopilot: 86 checks
 bash tests/scan-test.sh       # sessions that already wait: 24 checks
-bash tests/window-test.sh     # builds the window and renders it to a PNG
+bash tests/platform-test.sh   # Linux, Windows and macOS branches: 57 checks
+bash tests/window-test.sh     # macOS: builds the window and renders it to a PNG
 ```
 
-The first two run the hook against stand-ins for the window, the notifier, the
-dialog and `open`, in a temporary home folder. Nothing shows on screen.
+They run the hook against stand-ins for the window, the notifier, the dialog,
+`open`, the idle tools and `uname`, in a temporary home folder. Nothing shows
+on screen. All but the window test run on macOS, Linux and Windows (Git Bash);
+CI runs them on all three.
 
 ---
 
