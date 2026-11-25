@@ -90,10 +90,15 @@ case "${1:-status}" in
     fi
     if [ "$2" = on ]; then
       # Each tick opens a period and each untick closes it; all periods are kept,
-      # so the morning report has every decision taken for this session.
+      # so the morning report has every decision taken for this session. A
+      # period open for a day has already ended (the hook stops at a day): it
+      # is closed at that time and a new one opens.
       update --arg id "$sid" --arg t "${4:-}" --argjson n "$now" '
         .sessions[$id] = ((.sessions[$id] // {}) | .title = (if $t != "" then $t else (.title // "") end)
-          | .periods = ((.periods // []) | if length > 0 and .[-1][1] == null then . else . + [[$n, null]] end))' \
+          | .periods = ((.periods // [])
+              | if length > 0 and .[-1][1] == null and ($n - (.[-1][0] // 0)) >= 86400
+                then .[-1][1] = (.[-1][0] + 86400) else . end
+              | if length > 0 and .[-1][1] == null then . else . + [[$n, null]] end))' \
         || cannot_write
       echo "Autopilot ON for ${4:-$sid}"
     else

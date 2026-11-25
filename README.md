@@ -250,7 +250,7 @@ Merge it with the hooks you already have. Then run
 
 ```bash
 bash tests/test.sh            # the inbox: 61 checks
-bash tests/autopilot-test.sh  # autopilot: 99 checks
+bash tests/autopilot-test.sh  # autopilot: 102 checks
 bash tests/scan-test.sh       # sessions that already wait: 24 checks
 bash tests/window-test.sh     # builds the window and renders it to a PNG
 ```

@@ -223,6 +223,12 @@ check day-old-session-off "$(fire "Question a day later")" "permissionDecision" 
 check day-old-not-in-status "$("$AP" status)" "on for old" 0
 jq -nc --argjson t "$(( $(date +%s) - 3600 ))" '{sessions:{local_test:{title:"fresh",periods:[[$t,null]]}}}' > "$HOME/.claude/needs-you/autopilot.json"
 check hour-old-session-on "$(fire "Question an hour later")" '"permissionDecision": "deny"' 1
+# Ticking a day-old session again opens a new period: autopilot is on again.
+jq -nc --argjson t "$(( $(date +%s) - 90000 ))" '{sessions:{local_test:{title:"old",periods:[[$t,null]]}}}' > "$HOME/.claude/needs-you/autopilot.json"
+"$AP" session on local_test old >/dev/null
+same day-old-period-closed "$(jq '.sessions.local_test.periods[0][1] - .sessions.local_test.periods[0][0]' "$HOME/.claude/needs-you/autopilot.json")" "86400"
+check retick-after-a-day-on "$(fire "Question after ticking again")" '"permissionDecision": "deny"' 1
+check retick-in-status "$("$AP" status)" "on for old" 1
 
 # --- Steps only the owner may take: money, archiving, renaming, closing ------------
 
