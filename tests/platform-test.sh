@@ -128,8 +128,7 @@ if [ -n "$ps" ]; then
   check powershell-idle-csharp-compiles "$out" "error CS" 0
   check powershell-idle-type-added "$out" "Cannot add type" 0
   case "${OSTYPE:-}" in
-    msys*|cygwin*) same windows-idle-runs-clean "$(printf '%s
-' "$out" | grep -v -E '^[0-9]*$')" "" ;;
+    msys*|cygwin*) same windows-idle-runs-clean "$(printf '%s\n' "$out" | grep -v -E '^[0-9]*$')" "" ;;
   esac
 else
   skip powershell-parses-scripts "no PowerShell here"
