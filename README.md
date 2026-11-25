@@ -55,10 +55,11 @@ need this; Claude Code's own notifications are enough.
 - **Autopilot, per session or for all of them.** Tick "Autopilot" on a session
   and it stops waiting for you: it takes its own recommended answer, its plan
   is approved and its permission prompts are granted. Or press "Autopilot
-  until 08:00" before you leave. Every decision is logged. Merging, pushing,
-  deploying, publishing, sending, deleting, paying and anything with
-  credentials still wait for you. It answers only while you are away (no
-  keyboard or mouse for 5 minutes), so it never races you. Autopilot answers from the next request on:
+  until 08:00" before you leave. It answers only while you are away from the
+  computer (no keyboard or mouse for 5 minutes), so it never races you. Every
+  decision is logged. Merging, pushing, deploying, publishing, sending,
+  deleting, archiving, spending money and anything with credentials or account
+  access still wait for you. Autopilot answers from the next request on:
   a request that already waits when you tick it stays in the window, marked,
   until you open the session and answer it.
 
@@ -169,8 +170,11 @@ Before you trust it with a night:
   decision, the same as your click. It checks the request's text (the
   question, the plan, the command or tool and its input) for steps only you may
   take: merge, push, deploy, publish, release, send, email, post, delete,
-  `rm`, force, pay, refund, login, password, credential, secret, token, sudo,
-  commit, pull request, ssh, and a `curl` that sends data, in English and
+  `rm`, force, pay, refund, any spending (budgets, prices, amounts in USD, EUR,
+  PLN), archive, rename a repo, close a PR or issue, cancel, production,
+  migrations, imports, limits, keys and live mode, accounts, access and
+  sharing, privacy and tracking, login, password, credential, secret, token,
+  sudo, commit, pull request, ssh, and a `curl` that sends data, in English and
   Polish. Those wait for you. It is a word list, so it errs on the side of
   waiting.
 - The report shows the answer each session was told to take. What the session
@@ -184,7 +188,7 @@ Before you trust it with a night:
   computer, or when the system cannot tell, every request waits for you in the
   window.
 - Autopilot for all sessions ends at the time you set, at most 24 hours ahead.
-  A ticked session stays on autopilot until you untick it.
+  A ticked session stays on autopilot for a day at most, then goes off by itself.
 
 ## Settings
 
@@ -319,9 +323,9 @@ Merge it with the hooks you already have. Then run
 
 ```bash
 bash tests/test.sh            # the inbox: 68 checks
-bash tests/autopilot-test.sh  # autopilot: 86 checks
+bash tests/autopilot-test.sh  # autopilot: 107 checks
 bash tests/scan-test.sh       # sessions that already wait: 24 checks
-bash tests/platform-test.sh   # Linux, Windows and macOS branches: 57 checks
+bash tests/platform-test.sh   # Linux, Windows and macOS branches: 59 checks
 bash tests/window-test.sh     # macOS: builds the window and renders it to a PNG
 ```
 

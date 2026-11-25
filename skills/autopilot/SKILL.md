@@ -28,8 +28,8 @@ A desktop-app session is known by `CLAUDE_CODE_HOST_SESSION_ID`; a terminal
 session (the CLI or an IDE) by its own session id.
 
 `on` takes the end time as `HH:MM` in local time and means the next such time.
-It switches itself off at that time. `session on` covers one session until it
-is switched off; the owner does the same with the Autopilot switch on that
+It switches itself off at that time. `session on` covers one session for a day
+at most, or until it is switched off; the owner does the same with the Autopilot switch on that
 session's row in the needs-you window, and sets the end time there too. State lives in `~/.claude/needs-you/`, so it
 covers every session on this machine at once, with no restart. Autopilot
 answers only while the owner is away from the computer (no keyboard or mouse
@@ -50,9 +50,10 @@ A refusal that contains "Autopilot is on" is the owner's standing answer.
 2. Say in your final message which decision you took and why, so the owner can
    reverse it.
 3. Never decide these yourself, even with a recommendation: logins or passwords,
-   payments or purchases, merging, pushing or deploying, publishing or sending
-   anything to other people, deleting data, irreversible production changes,
-   granting permissions. Skip that step, finish everything else and leave the
+   payments, purchases or any spending (ad budgets included), merging, pushing
+   or deploying, publishing or sending anything to other people, deleting,
+   archiving, renaming or closing anything, cancelling runs, production changes
+   and migrations, granting permissions or account access. Skip that step, finish everything else and leave the
    question in your final message.
 4. When the refusal says "do not take that step", your question asked for a
    go-ahead (to commit, or to open or merge a pull request). That stays with
@@ -60,7 +61,8 @@ A refusal that contains "Autopilot is on" is the owner's standing answer.
 
 Autopilot also approves a plan and grants a permission prompt for the owner,
 unless the plan or the request names a step only the owner may take (merge,
-push, deploy, publish, send, delete, pay, credentials, commit, pull request).
+push, deploy, publish, send, delete, archive, pay or spend, credentials, keys,
+access, production, commit, pull request).
 An approved plan does not cover those steps: skip them and leave them in your
 final message. A blocked command still waits for the owner.
 

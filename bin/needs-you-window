@@ -61,7 +61,8 @@ web_refresh() {
   [ -n "$entries" ] || entries='[]'
   ap=$(jq -c --argjson now "$now" '{
       until: (if (.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400 then .until else null end),
-      sessions: ((.sessions // {}) | with_entries(select((.value.periods // []) | length > 0 and .[-1][1] == null))
+      sessions: ((.sessions // {}) | with_entries(select((.value.periods // []) | length > 0 and .[-1][1] == null
+                   and ($now - (.[-1][0] // 0)) < 86400))   # a ticked session: a day at most
                  | map_values(.title // ""))}' "$DATA/autopilot.json" 2>/dev/null)
   [ -n "$ap" ] || ap='{"until":null,"sessions":{}}'
   # shellcheck disable=SC2086

@@ -13,11 +13,11 @@ sessions in the terminal, not only in the Claude desktop app.
   look as the macOS window and no server or network; a native notification
   (`notify-send`, a Windows toast); the desktop app's data in `~/.config/Claude`
   or `%APPDATA%\Claude` (best effort).
-- **Autopilot waits while you are there.** It answers only after
-  `NEEDS_YOU_AUTOPILOT_IDLE_MINUTES` (default 5) without keyboard or mouse
-  input. Idle time comes from `ioreg` (macOS), `xprintidle` or GNOME's idle
-  monitor (Linux) and `GetLastInputInfo` (Windows). When the system cannot tell,
-  autopilot does not answer. The steps only you may take are unchanged.
+- **Autopilot reads the idle time on every system**: `ioreg` (macOS),
+  `xprintidle` or GNOME's idle monitor (Linux), `GetLastInputInfo` (Windows),
+  or your own `NEEDS_YOU_IDLE_SECONDS_CMD`. **Changed from 0.4.0:** when the
+  system cannot tell, autopilot now does not answer (0.4.0 answered). The
+  steps only you may take are unchanged.
 - **`nb-autopilot doctor`** checks what your system needs, says whether the
   idle time can be read, and prints the install command per system.
 - New settings: `NEEDS_YOU_AUTOPILOT_IDLE_MINUTES`, `NEEDS_YOU_IDLE_SECONDS_CMD`,
@@ -26,6 +26,13 @@ sessions in the terminal, not only in the Claude desktop app.
   included).
 - Tests run on macOS, Ubuntu and Windows (Git Bash) in CI; a new suite,
   `tests/platform-test.sh`, covers the branches of each system with stand-ins.
+
+## 0.4.0 (2026-11-25)
+
+- Autopilot answers only after `NEEDS_YOU_AUTOPILOT_IDLE_MINUTES` (default 5)
+  without keyboard or mouse input, a ticked session stays on for a day at most,
+  and the owner-only list covers spending, archiving, renaming, closing,
+  cancelling, production, migrations, keys, accounts and access (#7).
 
 ## 0.3.0 (2026-11-16)
 
