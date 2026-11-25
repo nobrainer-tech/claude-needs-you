@@ -325,7 +325,7 @@ Merge it with the hooks you already have. Then run
 bash tests/test.sh            # the inbox: 68 checks
 bash tests/autopilot-test.sh  # autopilot: 107 checks
 bash tests/scan-test.sh       # sessions that already wait: 24 checks
-bash tests/platform-test.sh   # Linux, Windows and macOS branches: 59 checks
+bash tests/platform-test.sh   # Linux, Windows and macOS branches: 87 checks
 bash tests/window-test.sh     # macOS: builds the window and renders it to a PNG
 ```
 
