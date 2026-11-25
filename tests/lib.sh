@@ -13,6 +13,8 @@ WORK=$(mktemp -d /tmp/needs-you-test.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin"
 FAIL=0
+# Time for a background hook to start; Git Bash starts processes far slower.
+case "${OSTYPE:-}" in msys*|cygwin*) SPAWN_WAIT=1.2 ;; *) SPAWN_WAIT=0.3 ;; esac
 
 cat > "$WORK/bin/window" <<'EOF'
 #!/bin/bash

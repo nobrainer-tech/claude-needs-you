@@ -58,6 +58,15 @@ same own-command-wins "$(NEEDS_YOU_IDLE_SECONDS_CMD='echo 99' idle Linux)" "99"
 same own-command-garbage-unknown "$(NEEDS_YOU_IDLE_SECONDS_CMD='echo soon' idle Linux)" ""
 same unknown-system "$(idle SunOS)" ""
 
+# --- A lock left by a writer that crashed ------------------------------------------
+
+. "$ROOT/hooks/platform.sh"
+mkdir "$WORK/fresh.lock" "$WORK/old.lock"
+touch -t 202001010000 "$WORK/old.lock"
+check fresh-lock-is-live "$(ny_stale "$WORK/fresh.lock" && echo stale)" "stale" 0
+check old-lock-is-stale "$(ny_stale "$WORK/old.lock" && echo stale)" "stale" 1
+echo "DIAG find -mmin +1 on a fresh folder: [$(find "$WORK/fresh.lock" -maxdepth 0 -mmin +1 2>&1)]"
+
 # --- The desktop app's folder ------------------------------------------------------
 
 same app-dir-macos "$(appdir Darwin)" "$HOME/Library/Application Support/Claude"

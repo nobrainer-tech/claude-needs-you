@@ -74,7 +74,7 @@ lock_entry() {  # the same lock folder as the hook and the window
   local _
   for _ in $(seq 1 40); do
     mkdir "$1.lock" 2>/dev/null && return 0
-    [ -n "$(find "$1.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$1.lock" 2>/dev/null
+    ny_stale "$1.lock" && rmdir "$1.lock" 2>/dev/null
     sleep 0.05
   done
   return 1

@@ -75,7 +75,8 @@ same session-end-handles "$(entry .done)" "true"
 # leaves the newer request waiting.
 echo '{"ts":1,"session":"local_test","msg":"older","done":false}' > "$(INBOX)"
 mkdir "$(INBOX).lock"
-event PostToolUse Bash & sleep 0.3
+# Git Bash starts a process far slower: give the hook time to reach the lock.
+event PostToolUse Bash & sleep "$SPAWN_WAIT"
 jq -nc --argjson ts "$(date +%s)" '{ts:$ts,session:"local_test",msg:"newer",done:false}' > "$(INBOX)"
 rmdir "$(INBOX).lock"; wait
 same delayed-completion-keeps-newer "$(entry .done)" "false"

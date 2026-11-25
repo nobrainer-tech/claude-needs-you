@@ -34,19 +34,27 @@ case "${OSTYPE:-}" in
   msys*|cygwin*)
     NY_JQ_BINARY=""
     command jq -b -n 1 >/dev/null 2>&1 && NY_JQ_BINARY=1
+    ny_jq() { if [ -n "$NY_JQ_BINARY" ]; then command jq -b "$@"; else command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"; fi; }
     jq() {
-      local a conv="${MSYS2_ARG_CONV_EXCL:-}"
-      for a in "$@"; do case "$a" in -[!-]*n*) conv='*'; break ;; esac; done
-      if [ -n "$NY_JQ_BINARY" ]; then
-        MSYS2_ARG_CONV_EXCL="$conv" command jq -b "$@"
-      else
-        MSYS2_ARG_CONV_EXCL="$conv" command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"
-      fi
+      local a
+      for a in "$@"; do
+        case "$a" in -[!-]*n*) MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' ny_jq "$@"; return ;; esac
+      done
+      ny_jq "$@"
     } ;;
 esac
 
 # GNU stat (Linux, Git Bash) or BSD stat (macOS).
 if stat -c %Y / >/dev/null 2>&1; then NY_STAT=(-c '%Y %n'); else NY_STAT=(-f '%m %N'); fi
+
+# A lock folder left by a writer that crashed: older than a minute.
+ny_stale() {
+  local m
+  m=$(stat "${NY_STAT[@]}" "$1" 2>/dev/null) || return 1
+  m="${m%% *}"
+  case "$m" in ''|*[!0-9]*) return 1 ;; esac
+  [ $(( $(date +%s) - m )) -gt 60 ]
+}
 
 # GNU or busybox date, else BSD date.
 if date -d @0 +%s >/dev/null 2>&1; then

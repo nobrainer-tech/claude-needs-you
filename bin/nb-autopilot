@@ -56,7 +56,7 @@ update() {
   for _ in $(seq 1 50); do
     if mkdir "$lock" 2>/dev/null; then got=1; break; fi
     # A lock older than a minute belongs to a writer that crashed.
-    [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$lock" 2>/dev/null
+    ny_stale "$lock" && rmdir "$lock" 2>/dev/null
     sleep 0.1
   done
   [ -n "$got" ] || return 1

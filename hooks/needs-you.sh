@@ -63,7 +63,7 @@ lock_entry() {
   local _
   for _ in $(seq 1 40); do
     mkdir "$ENTRY.lock" 2>/dev/null && return 0
-    [ -n "$(find "$ENTRY.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$ENTRY.lock" 2>/dev/null
+    ny_stale "$ENTRY.lock" && rmdir "$ENTRY.lock" 2>/dev/null
     sleep 0.05
   done
   return 1
