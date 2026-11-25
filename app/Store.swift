@@ -100,13 +100,24 @@ func loadAutopilot() -> Autopilot {
 
 // Every writer of an entry (the hook and this window) holds its lock, so
 // a check and the write that follows it see the same request. A lock older than
-// a minute belongs to a writer that crashed.
+// a minute belongs to a writer that crashed; it is removed only by the writer
+// that holds LOCK.break and finds it still stale, as ny_break_stale does.
+func isStale(_ path: String) -> Bool {
+  guard let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return false }
+  return Date().timeIntervalSince(m) > 60
+}
+func breakStale(_ lock: String) {
+  let brk = lock + ".break", fd = open(brk, O_CREAT | O_EXCL | O_WRONLY, 0o600)
+  guard fd >= 0 else { if isStale(brk) { unlink(brk) }; return }
+  close(fd)
+  if isStale(lock) { rmdir(lock); unlink(lock) }
+  unlink(brk)
+}
 func withEntryLock(_ file: String, _ body: () -> Void) {
   let lock = file + ".lock"
   for _ in 0..<40 {
     if mkdir(lock, 0o700) == 0 { body(); rmdir(lock); return }
-    if let m = (try? FileManager.default.attributesOfItem(atPath: lock))?[.modificationDate] as? Date,
-       Date().timeIntervalSince(m) > 60 { rmdir(lock); unlink(lock) }
+    if isStale(lock) { breakStale(lock) }
     usleep(50_000)
   }
 }
