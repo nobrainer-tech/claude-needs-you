@@ -6,7 +6,9 @@
 . "$(dirname "$0")/lib.sh"
 SCAN="$ROOT/bin/needs-you-scan"
 
-iso() { date -u -r "$1" '+%Y-%m-%dT%H:%M:%S.000Z'; }
+# shellcheck source=hooks/platform.sh
+. "$ROOT/hooks/platform.sh"
+iso() { TZ=UTC ny_date_at "$1" '%Y-%m-%dT%H:%M:%S.000Z'; }
 now=$(date +%s)
 SESSIONS() { printf '%s' "$HOME/Library/Application Support/Claude/claude-code-sessions/acct/org"; }
 T() { printf '%s' "$HOME/.claude/projects/-my-repo/cli-1.jsonl"; }
