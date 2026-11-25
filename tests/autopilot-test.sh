@@ -5,6 +5,10 @@
 set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "$0")/lib.sh"
+# Autopilot answers only while the owner is away; these scenarios start with the
+# keyboard and mouse idle for 10 minutes.
+eval "$(declare -f setup | sed '1s/^setup/lib_setup/')"
+setup() { lib_setup "$@"; export FAKE_IDLE_NS=600000000000; }
 
 # --- Autopilot for all sessions ------------------------------------------------
 
@@ -196,5 +200,48 @@ mkdir -p "$HOME/.claude/needs-you"
 echo '{"until_epoch":1,"since_epoch":0,"until":"past"}' > "$HOME/.claude/needs-you/autopilot.json"
 check expired-no-deny "$(fire "Question after the end time")" "permissionDecision" 0
 check expired-report-empty "$("$AP" report)" "No autopilot decisions." 1
+
+# --- While the owner is at the Mac -----------------------------------------------
+
+setup present
+"$AP" on 23:59 >/dev/null
+export FAKE_IDLE_NS=30000000000     # input 30 s ago
+check present-no-deny "$(fire "Which path while I am here?")" "permissionDecision" 0
+same present-goes-to-window "$(entry .msg)" "Which path while I am here?"
+out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}' | "$HOOK")
+check present-permission-not-granted "$out" "allow" 0
+NEEDS_YOU_AUTOPILOT_IDLE_MINUTES=0 sh -c 'echo "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"Now?\"}]}}" | "$0"' "$HOOK" > "$WORK/now.out"
+check idle-zero-answers-at-once "$(cat "$WORK/now.out")" '"permissionDecision": "deny"' 1
+export FAKE_IDLE_NS=600000000000
+
+# --- A ticked session goes off after a day -----------------------------------------
+
+setup session-day
+mkdir -p "$HOME/.claude/needs-you"
+jq -nc --argjson t "$(( $(date +%s) - 90000 ))" '{sessions:{local_test:{title:"old",periods:[[$t,null]]}}}' > "$HOME/.claude/needs-you/autopilot.json"
+check day-old-session-off "$(fire "Question a day later")" "permissionDecision" 0
+check day-old-not-in-status "$("$AP" status)" "on for old" 0
+jq -nc --argjson t "$(( $(date +%s) - 3600 ))" '{sessions:{local_test:{title:"fresh",periods:[[$t,null]]}}}' > "$HOME/.claude/needs-you/autopilot.json"
+check hour-old-session-on "$(fire "Question an hour later")" '"permissionDecision": "deny"' 1
+# Ticking a day-old session again opens a new period: autopilot is on again.
+jq -nc --argjson t "$(( $(date +%s) - 90000 ))" '{sessions:{local_test:{title:"old",periods:[[$t,null]]}}}' > "$HOME/.claude/needs-you/autopilot.json"
+"$AP" session on local_test old >/dev/null
+same day-old-period-closed "$(jq '.sessions.local_test.periods[0][1] - .sessions.local_test.periods[0][0]' "$HOME/.claude/needs-you/autopilot.json")" "86400"
+check retick-after-a-day-on "$(fire "Question after ticking again")" '"permissionDecision": "deny"' 1
+check retick-in-status "$("$AP" status)" "on for old" 1
+
+# --- Steps only the owner may take: money, archiving, renaming, closing ------------
+
+setup owner-only-more
+"$AP" on 23:59 >/dev/null
+for q in "Start the Meta test up to 150 USD?" "Zgadzasz się na test Meta do 150 USD?" "Archive the 13 old sessions?" \
+         "Zarchiwizować 13 rozmów?" "Rename the repos and archive the old ones?" "Zamknąć PR #52 jako duplikat?" \
+         "Close PR #52 as a duplicate?" "Cancel the stuck run?" "Anulować zablokowany przebieg?" "Run the migration on production?" \
+         "Podpiąć GA4 z Twojego konta?" "Raise the ad budget to \$200?"; do
+  check "owner-only: $q" "$(fire "$q")" "permissionDecision" 0
+done
+check plain-question-still-answered "$(fire "Which colour for the button?")" '"permissionDecision": "deny"' 1
+check code-rename-still-answered "$(fire "Rename the helper to parseRow?")" '"permissionDecision": "deny"' 1
+check close-modal-still-answered "$(fire "Close the modal on Escape too?")" '"permissionDecision": "deny"' 1
 
 if [ "$FAIL" = 0 ]; then echo "ALL PASS"; else echo "SOME FAILED"; exit 1; fi

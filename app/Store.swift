@@ -76,9 +76,12 @@ func loadAutopilot() -> Autopilot {
   guard let j = readJSON(autopilotFile) else { return Autopilot(until: nil, sessions: [:]) }
   let now = Date().timeIntervalSince1970
   let u = num(j["until_epoch"])
-  // A session is on while its last period has no end.
+  // A session is on while its last period has no end, for a day at most.
   let all = (j["sessions"] as? [String: [String: Any]]) ?? [:]
-  let sessions = all.filter { (($0.value["periods"] as? [[Any]])?.last?.last).map { $0 is NSNull } ?? false }
+  let sessions = all.filter {
+    guard let last = ($0.value["periods"] as? [[Any]])?.last, last.count == 2, last[1] is NSNull else { return false }
+    return now - num(last[0]) < dayAgo
+  }
     .mapValues { str($0["title"]) }
   return Autopilot(until: u > now && u - now <= dayAgo ? str(j["until"]) : nil, sessions: sessions)
 }
