@@ -129,7 +129,7 @@ fi
 "$AP" off >/dev/null
 
 # A failed write is reported, not hidden behind "Autopilot OFF".
-if readonly_works; then
+if readonly_dir_works; then
   "$AP" on 23:59 >/dev/null
   chmod 500 "$HOME/.claude/needs-you"
   out=$("$AP" off 2>&1; echo "exit=$?")

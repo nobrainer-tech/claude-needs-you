@@ -104,6 +104,14 @@ readonly_works() {
   if [ -w "$f" ]; then rm -f "$f"; return 1; fi
   chmod 600 "$f"; rm -f "$f"
 }
+# Nor a folder that its owner cannot write to.
+readonly_dir_works() {
+  local d="$WORK/.ro-dir" ok=1
+  mkdir -p "$d"; chmod 500 "$d"
+  if ( : > "$d/x" ) 2>/dev/null; then ok=0; fi
+  chmod 700 "$d"; rm -rf "$d"
+  [ "$ok" = 1 ]
+}
 skip() { echo "SKIP $1: $2"; }
 same() {  # name, got, want
   if [ "$2" = "$3" ]; then echo "PASS $1"; else echo "FAIL $1: got '$2', want '$3'"; FAIL=1; fi
