@@ -1,6 +1,6 @@
 ---
 name: needs-you
-description: "Set up, test or troubleshoot the Needs You window: one macOS window that lists every Claude Code session waiting for the owner (a question, a plan to approve, a permission prompt), opens the exact session on a click, greys out handled ones, and switches autopilot per session or for all. Use for needs-you, the inbox window, notify me when Claude asks, the window does not show, test the window, or change its text."
+description: "Set up, test or troubleshoot the Needs You window: one window (macOS) or local browser page (Linux, Windows) that lists every Claude Code session waiting for the owner (a question, a plan to approve, a permission prompt), opens the exact session on a click, greys out handled ones, and switches autopilot per session or for all. Use for needs-you, the inbox window, notify me when Claude asks, the window does not show, test the window, or change its text."
 ---
 
 # Needs You
@@ -8,8 +8,17 @@ description: "Set up, test or troubleshoot the Needs You window: one macOS windo
 The hook `hooks/needs-you.sh` writes one entry per waiting session to
 `~/.claude/needs-you/inbox/` and opens the window (`bin/needs-you-window`) if it
 is not open. The window lists the entries, waiting ones first, and refreshes
-itself every second. It never answers a permission prompt and never blocks a
-session.
+itself every second. It never blocks a session.
+
+- macOS: a native window (Swift). A click opens a desktop-app session, or
+  copies the command that returns to a terminal session.
+- Linux and Windows: a local page, `~/.claude/needs-you/web/index.html`, in the
+  default browser, plus a notification (`notify-send`, a Windows toast). The
+  page updates itself; it opens again on a request only after
+  `NEEDS_YOU_REOPEN_MINUTES` (default 120). Its Autopilot buttons copy an
+  `nb-autopilot` command for the owner to run.
+- A terminal session (CLI, IDE) has no link: its entry carries
+  `cd <folder> && claude --resume <id>`.
 
 | When the session | The entry says |
 |---|---|
@@ -29,10 +38,14 @@ with "Clear handled".
 
 ## Check the setup
 
-Run `nb-autopilot doctor`. It needs `jq`; the window needs the Swift compiler of
-the Xcode Command Line Tools (`xcode-select --install`, only the owner can run
-it). Without the compiler, requests show as a `terminal-notifier` banner or a
-dialog instead.
+Run `nb-autopilot doctor`. It prints what this system has and the install
+command for what is missing. Everywhere it needs `jq`. On macOS the window
+needs the Swift compiler of the Xcode Command Line Tools
+(`xcode-select --install`, only the owner can run it); without it, requests
+show as a `terminal-notifier` banner or a dialog. On Linux the page needs
+`xdg-open` and notifications `notify-send`; on Windows, Git Bash and PowerShell.
+It also says whether the idle time can be read: when it cannot, autopilot does
+not answer.
 
 ## Test it
 
@@ -49,7 +62,7 @@ event to a file with the Write tool and pipe it to the hook:
 
 The entry appears within a second (the first run builds the window, a few
 seconds). The same message from the same session counts once per 2 minutes.
-`needs-you-window` opens the window by hand.
+`needs-you-window` opens the window (or the page) by hand.
 
 ## When it does not show
 
@@ -59,7 +72,10 @@ seconds). The same message from the same session counts once per 2 minutes.
    Swift compiler means banners or dialogs instead of the window.
 3. Hooks load when a session starts. A session that was open before the plugin
    was installed needs a restart.
-4. A terminal session is listed with its folder name and has no link.
+4. A terminal session is listed with its `/rename` name or its folder, and the
+   command that returns to it instead of a link.
+5. Linux or Windows and no page: `needs-you-window` opens it by hand; it lives
+   in `~/.claude/needs-you/web/`.
 
 ## Change the text
 
@@ -71,7 +87,7 @@ The `env` block of `~/.claude/settings.json` wins over the file but reaches
 only sessions started after the change. The window keeps the texts it opened
 with: after a change, close it and the next request opens it again. `NEEDS_YOU_IDLE_CMD` runs a
 command of the owner's (for example a message to the phone) when a request
-comes while the Mac has been idle for `NEEDS_YOU_IDLE_MINUTES` (default 10).
+comes while the computer has been idle for `NEEDS_YOU_IDLE_MINUTES` (default 10).
 
 Do not edit the hook to answer permission prompts or to click for the owner.
 For working unattended, use the `autopilot` skill: it answers questions,
