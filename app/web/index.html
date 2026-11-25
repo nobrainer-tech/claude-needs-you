@@ -93,6 +93,7 @@ const EN = {
   ROW_AP_PENDING: "Autopilot answers from the next request. This one is still waiting: open the session and answer it.",
   AP_ON: "Autopilot on until", AP_OFF: "Autopilot off", AP_START: "Autopilot until", AP_STOP: "Stop autopilot",
   OPEN_APP: "Open in Claude", COPY: "Copy", COPIED: "Copied. Paste it in a terminal.",
+  COPY_FAILED: "Could not copy the command. Select it and copy it by hand.",
   RESUME_HINT: "Return to it in a terminal:"
 };
 let T = EN, data = null, signature = "";
@@ -116,14 +117,23 @@ function toast(text) {
   t.textContent = text; t.classList.add("show");
   clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 2200);
 }
-async function copy(text) {
-  try { await navigator.clipboard.writeText(text); }
+// "Copied" only when the clipboard took it; otherwise the command is left
+// selected on the page (in its code box when it has one) for Ctrl+C.
+async function copy(text, box) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; }
   catch (_) {
     const a = el("textarea"); a.value = text; document.body.appendChild(a); a.select();
-    try { document.execCommand("copy"); } catch (_) {}
+    try { ok = document.execCommand("copy") === true; } catch (_) { ok = false; }
     a.remove();
   }
-  toast(T.COPIED);
+  if (!ok) {
+    const sel = window.getSelection(), r = document.createRange();
+    if (box) { r.selectNodeContents(box); sel.removeAllRanges(); sel.addRange(r); }
+    else { window.prompt(T.COPY_FAILED, text); }
+  }
+  toast(ok ? T.COPIED : T.COPY_FAILED);
+  return ok;
 }
 function button(label, filled, onClick) {
   const b = el("button", filled ? "filled" : "", label);
@@ -135,7 +145,12 @@ function apCmd(args) { return q(data.autopilot_cmd) + " " + args; }
 function render() {
   const entries = (data.entries || []).slice().sort((a, b) =>
     a.done !== b.done ? (a.done ? 1 : -1) : a.done ? (b.done_ts || 0) - (a.done_ts || 0) : b.ts - a.ts);
-  const ap = data.autopilot || { until: null, sessions: {} }, sessions = ap.sessions || {};
+  // Autopilot runs out by the clock, also while nothing writes data.js.
+  const ap = data.autopilot || {}, now = Date.now() / 1000, sessions = {};
+  for (const [id, s] of Object.entries(ap.sessions || {})) {
+    if (s && typeof s === "object" && now - (s.since || 0) < 86400) sessions[id] = s.title || "";
+  }
+  const until = ap.until && ap.until_epoch > now ? ap.until : null;
   const waiting = entries.filter((e) => !e.done).length;
 
   const h = $("heading"); h.textContent = T.TITLE;
@@ -143,8 +158,8 @@ function render() {
   document.title = waiting ? T.TITLE + " (" + waiting + ")" : T.TITLE;
 
   const bar = $("bar"); bar.replaceChildren();
-  if (ap.until) {
-    bar.append(el("span", "status on", "● " + T.AP_ON + " " + String(ap.until).slice(-5)), el("span", "spacer"),
+  if (until) {
+    bar.append(el("span", "status on", "● " + T.AP_ON + " " + String(until).slice(-5)), el("span", "spacer"),
       button(T.AP_STOP, false, () => copy(apCmd("off"))));
   } else {
     const time = el("input"); time.type = "time"; time.value = localStorage.getItem("needs-you-until") || "08:00";
@@ -189,7 +204,8 @@ function render() {
     if (/^claude:\/\/claude\.ai\/epitaxy\/[A-Za-z0-9_.-]+$/.test(e.link || "")) {
       const a = el("a", "", T.OPEN_APP); a.href = e.link; act.appendChild(a);
     } else if (e.resume) {
-      act.append(el("code", "", e.resume), button(T.COPY, true, () => copy(e.resume)));
+      const box = el("code", "", e.resume);
+      act.append(box, button(T.COPY, true, () => copy(e.resume, box)));
       act.title = T.RESUME_HINT;
     }
     if (act.childNodes.length) li.appendChild(act);
@@ -202,7 +218,8 @@ function render() {
 window.needsYou = function (d) {
   data = d;
   T = Object.assign({}, EN, d.texts || {});
-  const sig = JSON.stringify([d.entries, d.autopilot, d.texts, hidden()]);
+  // The minute too: autopilot may run out while data.js stays the same.
+  const sig = JSON.stringify([d.entries, d.autopilot, d.texts, hidden(), Math.floor(Date.now() / 60000)]);
   if (sig !== signature) { signature = sig; render(); }
 };
 function load() {

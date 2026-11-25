@@ -35,7 +35,8 @@ let T = (
   rowOnAutopilot: text("NEEDS_YOU_ROW_ON_AUTOPILOT", "On autopilot: this session answers its own questions."),
   rowApPending: text("NEEDS_YOU_ROW_AP_PENDING", "Autopilot answers from the next request. This one is still waiting: open the session and answer it."),
   resumeHint: text("NEEDS_YOU_RESUME_HINT", "Return to it in a terminal:"),
-  copied: text("NEEDS_YOU_COPIED", "Copied. Paste it in a terminal.")
+  copied: text("NEEDS_YOU_COPIED", "Copied. Paste it in a terminal."),
+  copyFailed: text("NEEDS_YOU_COPY_FAILED", "Could not copy the command. Select it and copy it by hand.")
 )
 
 var inboxDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/needs-you/inbox")

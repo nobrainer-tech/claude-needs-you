@@ -117,7 +117,9 @@ session_info "$APP_ID" "$(field .cwd)" "$(field .transcript_path)" "$CLI_ID"
 # --- Autopilot -------------------------------------------------------------
 # shellcheck source=hooks/autopilot.sh
 . "$ROOT/hooks/autopilot.sh"
-autopilot && exit 0
+# An answer changes the autopilot log, not the inbox; the page shows the
+# autopilot state, so it is refreshed too.
+autopilot && { web_refresh; exit 0; }
 
 # --- Needs You -------------------------------------------------------------
 mkdir -p "$INBOX" 2>/dev/null
@@ -155,7 +157,7 @@ rm -f "$ENTRY.tmp.$$" 2>/dev/null
 # NEEDS_YOU_SESSION_ID, and one line of text as its first argument. When this
 # system cannot tell the idle time, it does not run.
 if [ -n "${NEEDS_YOU_IDLE_CMD:-}" ]; then
-  if ny_owner_away "${NEEDS_YOU_IDLE_MINUTES:-10}"; then
+  if ny_owner_away "${NEEDS_YOU_IDLE_MINUTES:-10}" 10; then
     ( NEEDS_YOU_MESSAGE="$MSG" NEEDS_YOU_SESSION_TITLE="$TITLE" NEEDS_YOU_SESSION_ID="$SID" \
         /bin/sh -c "$NEEDS_YOU_IDLE_CMD" needs-you "$HEADLINE: $TITLE: $MSG" ) </dev/null >/dev/null 2>&1 &
   fi

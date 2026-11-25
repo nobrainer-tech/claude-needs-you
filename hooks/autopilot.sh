@@ -26,10 +26,10 @@ AP=$(jq -r --arg id "$SID" --argjson now "$NOW" '
 # are at the computer, or when this system cannot tell (hooks/platform.sh), a
 # request waits for you in the window, autopilot or not.
 autopilot_owner_away() {
-  local minutes="${NEEDS_YOU_AUTOPILOT_IDLE_MINUTES:-5}"
-  case "$minutes" in ''|*[!0-9]*) minutes=5 ;; esac
+  local minutes
+  minutes=$(ny_int "${NEEDS_YOU_AUTOPILOT_IDLE_MINUTES:-5}" 5)
   [ "$minutes" = 0 ] && return 0
-  ny_owner_away "$minutes"
+  ny_owner_away "$minutes" 5
 }
 
 # Steps only the owner may take, in English and Polish: merging, pushing,

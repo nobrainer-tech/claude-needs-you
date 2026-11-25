@@ -33,7 +33,7 @@ jq_hint() {
     *) echo "sudo apt install jq, sudo dnf install jq or sudo pacman -S jq" ;;
   esac
 }
-if [ "${1:-}" != doctor ] && ! command -v jq >/dev/null 2>&1; then
+if [ "${1:-}" != doctor ] && ! type -P jq >/dev/null 2>&1; then
   echo "nb-autopilot: jq is required ($(jq_hint))" >&2
   exit 1
 fi
@@ -59,6 +59,10 @@ update() {
     printf '%s' "$cur" | jq "$@" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" 2>/dev/null && ok=0
   [ -n "${tmp:-}" ] && rm -f "$tmp" 2>/dev/null
   ny_unlock "$lock"
+  # The inbox page (Linux, Windows) shows the autopilot state: refresh it.
+  if [ "$ok" = 0 ] && [ -f "$DATA/web/index.html" ]; then
+    ( "$ROOT/bin/needs-you-window" --refresh </dev/null >/dev/null 2>&1 & )
+  fi
   return "$ok"
 }
 
@@ -141,7 +145,7 @@ case "${1:-status}" in
   doctor)
     # What this system needs, with an install hint per system.
     row() { printf '%-9s%s\n' "$1" "$2"; }
-    have() { command -v "$1" >/dev/null 2>&1; }
+    have() { type -P "$1" >/dev/null 2>&1; }   # a program, not a shell function
     row system "$NY_OS ($(uname -s 2>/dev/null))"
     if have jq; then row ok "jq"; else row MISSING "jq (required: $(jq_hint))"; fi
     case "$NY_OS" in
@@ -165,7 +169,7 @@ case "${1:-status}" in
         else row MISSING "PowerShell (notifications and idle time; part of Windows)"; fi ;;
     esac
     # Autopilot answers only while the owner is away, so it must read the idle time.
-    minutes="${NEEDS_YOU_AUTOPILOT_IDLE_MINUTES:-5}"
+    minutes=$(ny_int "${NEEDS_YOU_AUTOPILOT_IDLE_MINUTES:-5}" 5)
     if ny_idle_seconds >/dev/null; then
       row ok "idle time: $NY_IDLE s since the last input ($NY_IDLE_VIA)"
     elif [ "$minutes" = 0 ]; then

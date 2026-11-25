@@ -23,5 +23,6 @@
   "NEEDS_YOU_RESUME_HINT": "Wróć do niej w terminalu:",
   "NEEDS_YOU_OPEN_APP": "Otwórz w Claude",
   "NEEDS_YOU_SHOW_HANDLED": "Pokaż załatwione",
-  "NEEDS_YOU_WEB_HINT": "Sesję aplikacji Claude otwiera jej przycisk. Sesję z terminala: skopiuj polecenie i uruchom je w terminalu. Przełączniki autopilota kopiują polecenie: uruchom je w terminalu albo napisz dowolnej sesji „autopilot do 8”."
+  "NEEDS_YOU_WEB_HINT": "Sesję aplikacji Claude otwiera jej przycisk. Sesję z terminala: skopiuj polecenie i uruchom je w terminalu. Przełączniki autopilota kopiują polecenie: uruchom je w terminalu albo napisz dowolnej sesji „autopilot do 8”.",
+  "NEEDS_YOU_COPY_FAILED": "Nie udało się skopiować polecenia. Zaznacz je i skopiuj ręcznie."
 }

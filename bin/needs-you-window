@@ -34,7 +34,7 @@ command -v jq >/dev/null 2>&1 && . "$ROOT/hooks/settings.sh"
 WEB="$DATA/web"
 # The texts the page shows; nothing else of the settings goes into it.
 TEXT_KEYS='TITLE WAITING_COUNT HANDLED EMPTY WEB_HINT CLEAR SHOW_HANDLED ROW_AUTOPILOT ROW_ON_AUTOPILOT ROW_AP_PENDING
-  AP_ON AP_OFF AP_START AP_STOP OPEN_APP COPY COPIED RESUME_HINT'
+  AP_ON AP_OFF AP_START AP_STOP OPEN_APP COPY COPIED COPY_FAILED RESUME_HINT'
 
 # Copy the page, its fonts and logo when they are missing or changed.
 web_install() {
@@ -49,47 +49,58 @@ web_install() {
 }
 
 # data.js: needsYou({...}) with the entries of the last day, autopilot and texts.
+# One writer at a time, and each reads the inbox only once it holds the lock, so
+# the snapshot written last is always the newest. Everything reaches jq on
+# stdin, never as an argument: Windows caps a command line at 32767 characters.
 web_refresh() {
   command -v jq >/dev/null 2>&1 || return 1
   web_install || return 1
-  local now f entries ap texts tmp ok
+  ny_lock "$WEB/data.lock" 100 0.05 || return 1
+  local now f tmp ok=1
   now=$(date +%s)
-  # One entry per line (every writer writes compact JSON); a broken file is skipped.
-  entries=$(for f in "$DATA"/inbox/*.json; do [ -f "$f" ] && { tr -d '\r\n' < "$f"; echo; }; done \
-    | jq -nRc --argjson now "$now" '[inputs | fromjson? | select(type == "object" and ($now - (.ts // 0)) <= 86400)
-        | {ts, session, title, section, project, msg, link, resume, done, done_ts}]' 2>/dev/null)
-  [ -n "$entries" ] || entries='[]'
-  ap=$(jq -c --argjson now "$now" '{
-      until: (if (.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400 then .until else null end),
-      sessions: ((.sessions // {}) | with_entries(select((.value.periods // []) | length > 0 and .[-1][1] == null
-                   and ($now - (.[-1][0] // 0)) < 86400))   # a ticked session: a day at most
-                 | map_values(.title // ""))}' "$DATA/autopilot.json" 2>/dev/null)
-  [ -n "$ap" ] || ap='{"until":null,"sessions":{}}'
-  # shellcheck disable=SC2086
-  texts=$(jq -nc --arg keys "$(printf '%s ' $TEXT_KEYS)" '
-    ($keys | split(" ") | map(select(. != ""))) as $k
-    | $ENV | with_entries(select(.key | startswith("NEEDS_YOU_")) | .key |= ltrimstr("NEEDS_YOU_")
-             | select(.key as $x | $k | index($x)) | select(.value != ""))')
-  [ -n "$texts" ] || texts='{}'
   tmp="$WEB/data.js.tmp.$$"
-  jq -nr --argjson e "$entries" --argjson ap "$ap" --argjson t "$texts" --argjson now "$now" \
-     --arg cmd "$ROOT/bin/nb-autopilot" --arg os "$NY_OS" \
-     '{generated: $now, os: $os, autopilot_cmd: $cmd, entries: $e, autopilot: $ap, texts: $t}
-      | "needsYou(\(tojson));"' > "$tmp" 2>/dev/null && mv "$tmp" "$WEB/data.js"
-  ok=$?
+  {
+    # One entry per line (every writer writes compact JSON); a broken file is skipped.
+    for f in "$DATA"/inbox/*.json; do [ -f "$f" ] && { tr -d '\r\n' < "$f"; echo; }; done \
+      | jq -nRc --argjson now "$now" '[inputs | fromjson? | select(type == "object" and ($now - (.ts // 0)) <= 86400)
+          | {ts, session, title, section, project, msg, link, resume, done, done_ts}]' 2>/dev/null || echo '[]'
+    # The page checks both times again by the clock, so an open tab never shows
+    # an autopilot that has run out.
+    jq -c --argjson now "$now" '
+      ((.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400) as $on
+      | {until: (if $on then .until else null end), until_epoch: (if $on then .until_epoch else null end),
+         sessions: ((.sessions // {}) | with_entries(select((.value.periods // []) | length > 0 and .[-1][1] == null
+                      and ($now - (.[-1][0] // 0)) < 86400))   # a ticked session: a day at most
+                    | map_values({title: (.title // ""), since: .periods[-1][0]}))}' "$DATA/autopilot.json" 2>/dev/null \
+      || echo '{"until":null,"until_epoch":null,"sessions":{}}'
+    # shellcheck disable=SC2086
+    jq -nc --arg keys "$(printf '%s ' $TEXT_KEYS)" '
+      ($keys | split(" ") | map(select(. != ""))) as $k
+      | $ENV | with_entries(select(.key | startswith("NEEDS_YOU_")) | .key |= ltrimstr("NEEDS_YOU_")
+               | select(.key as $x | $k | index($x)) | select(.value != ""))' 2>/dev/null || echo '{}'
+    jq -nc --argjson now "$now" --arg cmd "$ROOT/bin/nb-autopilot" --arg os "$NY_OS" \
+      '{generated: $now, os: $os, autopilot_cmd: $cmd}'
+  } | jq -sr 'select(length == 4) | {entries: .[0], autopilot: .[1], texts: .[2]} + .[3] | "needsYou(\(tojson));"' \
+      > "$tmp" 2>/dev/null && [ -s "$tmp" ] && mv "$tmp" "$WEB/data.js" && ok=0
   rm -f "$tmp"
+  ny_unlock "$WEB/data.lock"
   return "$ok"
 }
 
+# The time goes down first, so a second request meanwhile does not open it
+# again, and the browser starts in the background: xdg-open can wait until the
+# browser it started is closed, and the notification must not wait for that.
 web_open() {
-  ny_open "$WEB/index.html" </dev/null >/dev/null 2>&1 || return 1
+  [ -n "$(ny_opener)" ] || return 1
   date +%s > "$WEB/opened"
+  ( ny_open "$WEB/index.html" </dev/null >/dev/null 2>&1 & )
+  return 0
 }
 
 # Opened lately: the page reloads its data by itself, so a second tab adds nothing.
 web_opened_lately() {
-  local minutes="${NEEDS_YOU_REOPEN_MINUTES:-120}" at
-  case "$minutes" in ''|*[!0-9]*) minutes=120 ;; esac
+  local minutes at
+  minutes=$(ny_int "${NEEDS_YOU_REOPEN_MINUTES:-120}" 120)
   at=$(cat "$WEB/opened" 2>/dev/null)
   case "$at" in ''|*[!0-9]*) return 1 ;; esac
   [ $(( $(date +%s) - at )) -lt $(( minutes * 60 )) ]

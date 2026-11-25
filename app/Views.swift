@@ -262,7 +262,10 @@ final class Inbox: NSObject {
       }
       row.onOpen = { [unowned self, unowned row] e in
         // Copied, not handled: the request waits until you answer it there.
-        if copyResume(e) { row.resume?.stringValue = "✓ \(T.copied)\n\(e.resume)"; return }
+        if e.link.isEmpty && !e.resume.isEmpty {
+          row.resume?.stringValue = copyResume(e) ? "✓ \(T.copied)\n\(e.resume)" : "\(T.copyFailed)\n\(e.resume)"
+          return
+        }
         if let u = URL(string: e.link), !e.link.isEmpty { NSWorkspace.shared.open(u) }
         markDone(e)
         self.refresh(force: true)
