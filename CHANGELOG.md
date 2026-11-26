@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 (2026-11-26)
+
+- The macOS window shows its whole hint again: it was cut after two lines, so
+  the list of steps that always wait for you was not visible.
+- `nb-autopilot`'s own description matches what autopilot does since 0.4.0.
+
 ## 0.5.0 (2026-11-25)
 
 Needs You now works in Claude Code on macOS, Linux and Windows, and with
