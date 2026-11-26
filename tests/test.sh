@@ -1,258 +1,207 @@
 #!/bin/bash
-# Tests for hooks/needs-you.sh and bin/nb-autopilot.
-#
-# Fake terminal-notifier, osascript and open come first on PATH, and HOME points
-# at a temp folder. Nothing shows on screen and no real state is touched.
+# Tests for the inbox side of hooks/needs-you.sh.
+# The Swift window itself: tests/window-test.sh.
 # Usage: bash tests/test.sh
 set -u
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOOK="$ROOT/hooks/needs-you.sh"
-AP="$ROOT/bin/nb-autopilot"
-WORK=$(mktemp -d /tmp/needs-you-test.XXXXXX)
-trap 'rm -rf "$WORK"' EXIT
-mkdir -p "$WORK/bin"
-FAIL=0
+# shellcheck source=tests/lib.sh
+. "$(dirname "$0")/lib.sh"
 
-cat > "$WORK/bin/terminal-notifier" <<'EOF'
-#!/bin/bash
-echo "BANNER $*" >> "$FAKE_LOG"
-exit "${FAKE_BANNER_EXIT:-1}"
-EOF
-cat > "$WORK/bin/osascript" <<'EOF'
-#!/bin/bash
-# After "--" come the title, the message and the button labels.
-while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done
-shift
-title="$1"; msg="$2"; labels=$(( $# - 2 ))
-echo "SHOW [$title] $msg (labels: $labels)" >> "$FAKE_LOG"
-trap 'echo "CLOSED $msg" >> "$FAKE_LOG"; exit 143' TERM
-sleep "${FAKE_DIALOG_SECS:-3}" &
-wait $!
-printf '%s\n' "${FAKE_ANSWER:-Later}"
-EOF
-cat > "$WORK/bin/open" <<'EOF'
-#!/bin/bash
-echo "OPEN $*" >> "$FAKE_LOG"
-EOF
-chmod +x "$WORK/bin/"*
-export PATH="$WORK/bin:$PATH"
+# --- The inbox ---------------------------------------------------------------
 
-# A fresh home per scenario. By default the session is a desktop-app session
-# named "my-app | checkout bug".
-setup() {
-  export HOME="$WORK/$1" FAKE_LOG="$WORK/$1.log"
-  export CLAUDE_CODE_HOST_SESSION_ID="local_test"
-  unset FAKE_BANNER_EXIT FAKE_DIALOG_SECS FAKE_ANSWER
-  mkdir -p "$HOME/Library/Application Support/Claude/claude-code-sessions/acct/org"
-  echo '{"title":"my-app | checkout bug"}' \
-    > "$HOME/Library/Application Support/Claude/claude-code-sessions/acct/org/local_test.json"
-  : > "$FAKE_LOG"
-}
-ask() {
-  jq -nc --arg q "$1" '{hook_event_name:"PreToolUse", tool_name:"AskUserQuestion",
-    session_id:"cli-1", cwd:"/work/my-repo", tool_input:{questions:[{question:$q}]}}'
-}
-fire() { ask "$1" | "$HOOK"; }
-expect() {  # name, fixed string to count in the log, wanted count
-  local got
-  got=$(grep -c -F -- "$2" "$FAKE_LOG")
-  if [ "$got" = "$3" ]; then echo "PASS $1"
-  else echo "FAIL $1: '$2' x$got, want $3"; cat "$FAKE_LOG"; FAIL=1; fi
-}
-check() {  # name, text, fixed string, 1 = must be present / 0 = must be absent
-  local got=0
-  printf '%s' "$2" | grep -q -F -- "$3" && got=1
-  if [ "$got" = "$4" ]; then echo "PASS $1"
-  else echo "FAIL $1: '$3' present=$got, want $4"; printf '%s\n' "$2"; FAIL=1; fi
-}
+setup inbox
+fire "Question A"; sleep 1
+same entry-message "$(entry .msg)" "Question A"
+same entry-title "$(entry .title)" "my-app | checkout bug"
+same entry-section "$(entry .section)" "🛒 Shop"
+same entry-project-is-repo "$(entry .project)" "my-repo"
+same entry-link "$(entry .link)" "claude://claude.ai/epitaxy/local_test"
+same entry-waiting "$(entry .done)" "false"
+expect window-opened "WINDOW" 1
+expect no-banner-with-window "BANNER" 0
+expect no-dialog-with-window "DIALOG" 0
 
-# --- Needs You ---------------------------------------------------------------
+# A newer request of the same session replaces its entry.
+fire "Question B"; sleep 1
+same newer-replaces "$(entry .msg)" "Question B"
+same one-entry-per-session "$(find "$HOME/.claude/needs-you/inbox" -name '*.json' | wc -l | tr -d ' ')" "1"
 
-# A newer request replaces the dialog on screen; it is never dropped.
-setup newer
-fire "Question A"; sleep 1; fire "Question B"; sleep 6
-expect newer-shown "] Question B" 1
-expect older-closed "CLOSED Question A" 1
-expect title-from-app "SHOW [Claude needs you: my-app | checkout bug]" 2
+# The same request twice within 2 minutes counts once.
+: > "$FAKE_LOG"
+fire "Question B"; sleep 1
+expect dedupe "WINDOW" 0
 
-# A lock left by a crashed dialog does not swallow new requests.
-setup stale
-mkdir -p "$HOME/Library/Caches/needs-you/dialog-local_test.lock"
-touch -t 202601010000 "$HOME/Library/Caches/needs-you/dialog-local_test.lock"
-fire "Question C"; sleep 5
-expect stale-lock "] Question C" 1
+# The session moved on: its entry is handled, not removed.
+event PostToolUse mcp__ccd_turn__wrap_up
+same wrap-up-does-not-handle "$(entry .done)" "false"
+event PostToolUse Bash sub-1
+same subagent-does-not-handle "$(entry .done)" "false"
+event PostToolUse AskUserQuestion
+same tool-call-handles "$(entry .done)" "true"
+check handled-has-time "$(entry .done_ts)" "null" 0
+fire "Question C"; sleep 1
+same new-request-waits-again "$(entry .done)" "false"
+event UserPromptSubmit
+same prompt-handles "$(entry .done)" "true"
 
-setup dead-owner
-mkdir -p "$HOME/Library/Caches/needs-you/dialog-local_test.lock"
-echo 999999 > "$HOME/Library/Caches/needs-you/dialog-local_test.lock/pid"
-fire "Question D"; sleep 5
-expect dead-owner "] Question D" 1
+# A handled request that comes again within 2 minutes is a new request: the
+# same permission prompt after you approved the last one still reaches you.
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash"}' | "$HOOK"
+event PostToolUse Bash
+: > "$FAKE_LOG"
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash"}' | "$HOOK"; sleep 1
+same repeat-after-handled-waits "$(entry .done)" "false"
+expect repeat-after-handled-shown "WINDOW" 1
 
-# "Open" opens that exact session.
-setup open
-export FAKE_ANSWER="Open" FAKE_DIALOG_SECS=1
-fire "Question E"; sleep 3
-expect open-link "OPEN claude://claude.ai/epitaxy/local_test" 1
+# A newer request is not marked handled by a tool call that read the older one:
+# the hook only marks the request that is still in the file.
+echo '{"ts":1,"session":"local_test","msg":"old","done":false}' > "$(INBOX)"
+event PostToolUse Bash
+same handles-current "$(entry .done)" "true"
 
-# The same request twice within 2 minutes shows once.
-setup dedupe
-export FAKE_DIALOG_SECS=1
-fire "Question F"; sleep 2; fire "Question F"; sleep 2
-expect dedupe "] Question F" 1
+# Writers take turns on an entry: while another writer holds its lock, a new
+# request waits and is written after the lock is released, never lost.
+mkdir "$(INBOX).lock"
+fire "Question while locked" & sleep 0.6
+same locked-entry-not-written-yet "$(entry .msg)" "old"
+rmdir "$(INBOX).lock"; wait; sleep 0.3
+same written-after-unlock "$(entry .msg)" "Question while locked"
 
-# When the banner works, there is no dialog.
+# A session that ends is handled too.
+fire "Question before the end"; sleep 1
+event SessionEnd
+same session-end-handles "$(entry .done)" "true"
+
+# A tool call that waited for the lock while a newer request replaced the entry
+# leaves the newer request waiting.
+echo '{"ts":1,"session":"local_test","msg":"older","done":false}' > "$(INBOX)"
+mkdir "$(INBOX).lock"
+event PostToolUse Bash & sleep 0.3
+jq -nc --argjson ts "$(date +%s)" '{ts:$ts,session:"local_test",msg:"newer",done:false}' > "$(INBOX)"
+rmdir "$(INBOX).lock"; wait
+same delayed-completion-keeps-newer "$(entry .done)" "false"
+
+# Another session's tool call leaves this entry alone.
+fire "Question D"; sleep 1
+CLAUDE_CODE_HOST_SESSION_ID=local_other event PostToolUse Bash
+same other-session-leaves-it "$(entry .done)" "false"
+
+# Tools run in parallel: a request waits on one tool call, and only that call's
+# completion handles it. A notification that follows keeps the call it waits on.
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"tu-bash"}' | "$HOOK"; sleep 1
+same request-keeps-tool-call "$(entry .tool_use_id)" "tu-bash"
+echo '{"hook_event_name":"PostToolUse","tool_name":"Read","tool_use_id":"tu-read"}' | "$HOOK"
+same parallel-tool-leaves-it "$(entry .done)" "false"
+echo '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}' | "$HOOK"; sleep 1
+same notification-keeps-tool-call "$(entry .tool_use_id)" "tu-bash"
+echo '{"hook_event_name":"PostToolUse","tool_name":"Read","tool_use_id":"tu-read-2"}' | "$HOOK"
+same parallel-tool-leaves-notification "$(entry .done)" "false"
+echo '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"tu-bash"}' | "$HOOK"
+same own-tool-call-handles "$(entry .done)" "true"
+
+# Two prompts with the same text from two tool calls are two requests: the
+# second replaces the first, so finishing the first leaves the second waiting.
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"tu-1"}' | "$HOOK"; sleep 1
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"tu-2"}' | "$HOOK"; sleep 1
+same second-prompt-replaces-first "$(entry .tool_use_id)" "tu-2"
+echo '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"tu-1"}' | "$HOOK"
+same first-call-leaves-second "$(entry .done)" "false"
+: > "$FAKE_LOG"
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_use_id":"tu-2"}' | "$HOOK"; sleep 1
+expect same-call-again-counts-once "WINDOW" 0
+
+# --- Settings that do not depend on the session ------------------------------
+
+# A session started before the owner set the texts has none in its
+# environment; ~/.claude/needs-you/settings.json still gives them, and the
+# window opened by that session gets them too.
+setup settings
+mkdir -p "$HOME/.claude/needs-you"
+echo '{"NEEDS_YOU_LANG":"pl","NEEDS_YOU_PLAN":"Plan do akceptacji"}' > "$HOME/.claude/needs-you/settings.json"
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash"}' | "$HOOK"; sleep 1
+same file-language-in-entry "$(entry .msg)" "Prośba o zgodę: Bash"
+expect window-gets-file-language "[Claude czeka na Ciebie]" 1
+echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode"}' | "$HOOK"; sleep 1
+same file-text-beats-language "$(entry .msg)" "Plan do akceptacji"
+# The session's own environment still wins.
+NEEDS_YOU_PERMISSION="Zgoda" sh -c 'echo "{\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Read\"}" | "$0"' "$HOOK"; sleep 1
+same environment-beats-file "$(entry .msg)" "Zgoda: Read"
+# A command of several lines from the file runs as written, line by line.
+jq -n --arg c "printf first >> '$HOME/idle.out'
+printf second >> '$HOME/idle.out'" '{NEEDS_YOU_IDLE_CMD:$c}' > "$HOME/.claude/needs-you/settings.json"
+FAKE_IDLE_NS=900000000000 sh -c 'echo "{\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Edit\"}" | "$0"' "$HOOK"; sleep 1
+same file-command-keeps-lines "$(cat "$HOME/idle.out" 2>/dev/null)" "firstsecond"
+# An unknown or unsafe language name is ignored.
+echo '{"NEEDS_YOU_LANG":"../pl"}' > "$HOME/.claude/needs-you/settings.json"
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Grep"}' | "$HOOK"; sleep 1
+same unsafe-language-ignored "$(entry .msg)" "Permission needed: Grep"
+# Every text the window and the hook use has a Polish translation.
+missing=$(grep -ho 'text("NEEDS_YOU_[A-Z_]*\|NEEDS_YOU_[A-Z_]*:-[^}$]' "$ROOT/app/main.swift" "$ROOT/hooks/needs-you.sh" \
+  | grep -o 'NEEDS_YOU_[A-Z_]*' | sort -u | grep -v -e IDLE -e WINDOW \
+  | while read -r k; do jq -e --arg k "$k" 'has($k)' "$ROOT/texts/pl.json" >/dev/null || echo "$k"; done)
+same polish-covers-every-text "$missing" ""
+
+# --- Without the window ------------------------------------------------------
+
 setup banner
-export FAKE_BANNER_EXIT=0
-fire "Question G"; sleep 2
+export FAKE_NO_WINDOW=1 FAKE_BANNER_EXIT=0
+fire "Question E"; sleep 1
 expect banner-sent "BANNER" 1
 expect banner-links-session "-open claude://claude.ai/epitaxy/local_test" 1
-expect banner-no-dialog "SHOW" 0
+expect banner-no-window "WINDOW" 0
+same banner-still-inbox "$(entry .msg)" "Question E"
 
-# A burst ends on the latest request and leaves nothing behind.
-setup burst
-export FAKE_DIALOG_SECS=2
-fire "Question H1"; sleep 0.5; fire "Question H2"; sleep 0.5; fire "Question H3"; sleep 6
-expect burst-latest "] Question H3" 1
-left=$(find "$HOME/Library/Caches/needs-you" -maxdepth 1 \( -name 'dialog-*' -o -name 'closing-*' \) | wc -l | tr -d ' ')
-if [ "$left" = 0 ]; then echo "PASS no-leftovers"; else echo "FAIL no-leftovers: $left"; FAIL=1; fi
+setup dialog
+export FAKE_NO_WINDOW=1 FAKE_ANSWER=Open
+fire "Question F"; sleep 1
+expect dialog-shown "DIALOG [Claude needs you: my-app | checkout bug] Question F (labels: 2)" 1
+expect dialog-open-link "OPEN claude://claude.ai/epitaxy/local_test" 1
 
-# A terminal session: titled by its folder, no link, one button, its own lock.
+setup window-off
+export NEEDS_YOU_WINDOW=0
+fire "Question G"; sleep 1
+expect window-switched-off "WINDOW" 0
+expect window-off-dialog "DIALOG" 1
+unset NEEDS_YOU_WINDOW
+
+# A terminal session: titled by its folder, no link.
 setup terminal
 unset CLAUDE_CODE_HOST_SESSION_ID
-export FAKE_DIALOG_SECS=1
-fire "Question I"; sleep 3
-expect terminal-title "SHOW [Claude needs you: my-repo] Question I (labels: 0)" 1
+export FAKE_NO_WINDOW=1
+fire "Question I"; sleep 1
+expect terminal-title "DIALOG [Claude needs you: my-repo] Question I (labels: 0)" 1
 expect terminal-no-open "OPEN" 0
-expect terminal-banner-no-link "-open" 0
+same terminal-entry "$(entry .link cli-1)" ""
 
-# Other events.
+# --- Other events ------------------------------------------------------------
+
 setup events
-export FAKE_DIALOG_SECS=1
-echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{}}' | "$HOOK"; sleep 2
-expect plan "] A plan is waiting for your approval" 1
-echo '{"hook_event_name":"PermissionDenied","tool_name":"Bash","agent_id":"sub-1"}' | "$HOOK"; sleep 2
-expect subagent-denial-silent "Blocked" 0
-out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"recap":"done"}}' | "$HOOK"); sleep 1
-check wrap-up-without-question-silent "$out$(cat "$FAKE_LOG")" "recap" 0
+echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{}}' | "$HOOK"
+same plan "$(entry .msg)" "A plan is waiting for your approval"
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash"}' | "$HOOK"
+same permission "$(entry .msg)" "Permission needed: Bash"
+NEEDS_YOU_PERMISSION="Prośba o zgodę" bash -c 'echo "{\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Edit\"}" | "$0"' "$HOOK"
+same permission-text-from-env "$(entry .msg)" "Prośba o zgodę: Edit"
+rm -f "$(INBOX)"
+echo '{"hook_event_name":"PermissionDenied","tool_name":"Bash","agent_id":"sub-1"}' | "$HOOK"
+same subagent-denial-silent "$(entry .msg)" ""
+out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"recap":"done"}}' | "$HOOK")
+same wrap-up-without-question-silent "$out$(entry .msg)" ""
 out=$(echo 'not json' | "$HOOK"; echo "exit=$?")
 check garbage-input-is-harmless "$out" "exit=0" 1
 
-# --- Autopilot ---------------------------------------------------------------
+# --- Away from the Mac -------------------------------------------------------
 
-setup autopilot
-export FAKE_DIALOG_SECS=1
-check ap-on "$("$AP" on 23:59)" "Autopilot ON until" 1
-check ap-status-on "$("$AP" status)" "Autopilot ON until" 1
-
-Q='{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[
-  {"question":"Which path?","options":[{"label":"Path A"},{"label":"Path B (Recommended)"}]},
-  {"question":"Which name?","options":[{"label":"alpha"},{"label":"beta"}]}]}}'
-out=$(printf '%s' "$Q" | "$HOOK"); sleep 2
-check ap-deny "$out" '"permissionDecision": "deny"' 1
-check ap-picks-recommended "$out" "Which path? -> Path B (Recommended)" 1
-check ap-else-first-option "$out" "Which name? -> alpha" 1
-check ap-names-exceptions "$out" "Never decide these yourself" 1
-expect ap-no-popup "SHOW" 0
-expect ap-no-banner "BANNER" 0
-
-# "not recommended" inside a label is not the marker.
-Q='{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[
-  {"question":"Drop the old table?","options":[{"label":"Keep it"},{"label":"Drop it now (not recommended)"}]}]}}'
-out=$(printf '%s' "$Q" | "$HOOK")
-check ap-not-recommended-is-not-picked "$out" "Drop the old table? -> Keep it" 1
-
-W='{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"ask":"Run the slow tests too?","actions":[{"label":"Yes, run them"},{"label":"No"}]}}'
-out=$(printf '%s' "$W" | "$HOOK")
-check ap-end-of-turn "$out" "Run the slow tests too? -> Yes, run them" 1
-check ap-end-of-turn-names-exceptions "$out" "Never decide these yourself" 1
-check ap-exceptions-cover-merging "$out" "merging, pushing or deploying" 1
-
-# An end-of-turn question whose first answer is an app action (merge, commit,
-# open a pull request) is a go-ahead for the owner: autopilot never takes it.
-W='{"hook_event_name":"PreToolUse","tool_name":"mcp__ccd_turn__wrap_up","tool_input":{"ask":"Merge the pull request?","actions":[{"action":"merge"}]}}'
-out=$(printf '%s' "$W" | "$HOOK")
-check ap-app-action-denied "$out" '"permissionDecision": "deny"' 1
-check ap-app-action-left-for-owner "$out" "do not take that step" 1
-check ap-app-action-not-taken "$out" "Act on your recommended answer now" 0
-
-# Autopilot never answers a permission prompt or a plan: those still pop up.
-out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{}}' | "$HOOK"); sleep 2
-check ap-permission-not-answered "$out" "permissionDecision" 0
-expect ap-permission-pops-up "] Permission needed: Bash" 1
-out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{}}' | "$HOOK"); sleep 2
-check ap-plan-not-answered "$out" "permissionDecision" 0
-expect ap-plan-pops-up "] A plan is waiting for your approval" 1
-
-report=$("$AP" report)
-check ap-report-question "$report" "Which path? -> Path B (Recommended)" 1
-check ap-report-end-of-turn "$report" "Run the slow tests too? -> Yes, run them" 1
-check ap-report-left-for-owner "$report" "Merge the pull request? -> left for the owner (merge)" 1
-check ap-report-session "$report" "my-app | checkout bug" 1
-
-# Switching on again keeps the start of the report; off keeps the report.
-since=$(jq -r .since_epoch "$HOME/.claude/needs-you/autopilot.json")
-sleep 1; "$AP" on 23:58 >/dev/null
-check ap-on-again-keeps-start "$(jq -r .since_epoch "$HOME/.claude/needs-you/autopilot.json")" "$since" 1
-check ap-off "$("$AP" off)" "Autopilot OFF" 1
-check ap-status-off "$("$AP" status)" "Autopilot OFF" 1
-check ap-report-after-off "$("$AP" report)" "Which path?" 1
-out=$(fire "Question after autopilot"); sleep 2
-check ap-off-no-deny "$out" "permissionDecision" 0
-expect ap-off-popup "] Question after autopilot" 1
-
-"$AP" on 25:00 >/dev/null 2>&1
-check ap-rejects-bad-time "exit=$?" "exit=2" 1
-check ap-doctor "$("$AP" doctor)" "ok       jq" 1
-
-# No record, no answer: when the decision log cannot be written, autopilot does
-# not answer for the owner and the usual popup shows instead.
-"$AP" on 23:59 >/dev/null
-chmod 400 "$HOME/.claude/needs-you/decisions.jsonl"
-before=$(wc -l < "$HOME/.claude/needs-you/decisions.jsonl")
-out=$(fire "Question when the log is read-only"); sleep 2
-chmod 600 "$HOME/.claude/needs-you/decisions.jsonl"
-check ap-unlogged-no-deny "$out" "permissionDecision" 0
-expect ap-unlogged-popup "] Question when the log is read-only" 1
-check ap-unlogged-log-unchanged "$(wc -l < "$HOME/.claude/needs-you/decisions.jsonl")" "$before" 1
-"$AP" off >/dev/null
-
-# A failed write is reported, not hidden behind "Autopilot OFF".
-"$AP" on 23:59 >/dev/null
-chmod 500 "$HOME/.claude/needs-you"
-out=$("$AP" off 2>&1; echo "exit=$?")
-chmod 700 "$HOME/.claude/needs-you"
-check ap-off-failure-is-reported "$out" "could not write" 1
-check ap-off-failure-exit-code "$out" "exit=1" 1
-"$AP" off >/dev/null
-
-# An end time more than a day away is not a real setting: autopilot is off.
-setup far-future
-export FAKE_DIALOG_SECS=1
-mkdir -p "$HOME/.claude/needs-you"
-echo '{"until_epoch":99999999999,"since_epoch":0,"until":"never"}' > "$HOME/.claude/needs-you/autopilot.json"
-out=$(fire "Question with a forged end time"); sleep 2
-check far-future-no-deny "$out" "permissionDecision" 0
-expect far-future-popup "] Question with a forged end time" 1
-check far-future-status-off "$("$AP" status)" "Autopilot OFF" 1
-
-# A long question is cut by characters, not bytes: a letter outside ASCII at the
-# cut stays whole even when the hook runs in the C locale, as it does in the app.
-setup non-ascii
-export FAKE_DIALOG_SECS=1
-long=$(printf 'x%.0s' $(seq 1 179))
-ask "${long}ąęść and the rest of a long question" | LC_ALL=C "$HOOK"; sleep 2
-expect non-ascii-cut-on-a-character "${long}ą (labels: 2)" 1
-if iconv -f UTF-8 -t UTF-8 "$FAKE_LOG" >/dev/null 2>&1; then echo "PASS non-ascii-valid-utf8"
-else echo "FAIL non-ascii-valid-utf8"; FAIL=1; fi
-
-# An expired autopilot is off.
-setup expired
-export FAKE_DIALOG_SECS=1
-mkdir -p "$HOME/.claude/needs-you"
-echo '{"until_epoch":1,"since_epoch":0,"until":"past"}' > "$HOME/.claude/needs-you/autopilot.json"
-out=$(fire "Question after the end time"); sleep 2
-check expired-no-deny "$out" "permissionDecision" 0
-expect expired-popup "] Question after the end time" 1
-check expired-report-empty "$("$AP" report)" "No autopilot decisions." 1
+setup idle
+export NEEDS_YOU_IDLE_CMD='printf "%s|%s|%s\n" "$1" "$NEEDS_YOU_SESSION_ID" "$NEEDS_YOU_MESSAGE" >> "$FAKE_LOG"'
+export FAKE_IDLE_NS=$(( 11 * 60 * 1000000000 ))
+fire "Question J"; sleep 1
+expect idle-command-runs "Claude needs you: my-app | checkout bug: Question J|local_test|Question J" 1
+export FAKE_IDLE_NS=$(( 2 * 60 * 1000000000 ))
+fire "Question K"; sleep 1
+expect idle-command-not-at-desk "|Question K" 0
+export NEEDS_YOU_IDLE_MINUTES=1
+fire "Question L"; sleep 1
+expect idle-minutes-from-env "|Question L" 1
+unset NEEDS_YOU_IDLE_MINUTES
 
 if [ "$FAIL" = 0 ]; then echo "ALL PASS"; else echo "SOME FAILED"; exit 1; fi

@@ -1,13 +1,21 @@
 {
   "name": "needs-you",
-  "description": "A popup that opens the exact Claude Code session waiting for you, and a night autopilot that takes the session's own recommended answer while you are away.",
-  "version": "0.1.0",
+  "description": "One window with every Claude Code session that waits for you: click to open it, handled ones grey out. Plus an autopilot, for all sessions until morning or per session, that takes the session's own recommended answer.",
+  "version": "0.4.0",
   "author": {
     "name": "NoBrainer Tech",
     "url": "https://nobrainer.tech"
   },
-  "homepage": "https://github.com/nobrainer-tech/needs-you",
-  "repository": "https://github.com/nobrainer-tech/needs-you",
+  "homepage": "https://github.com/nobrainer-tech/claude-needs-you",
+  "repository": "https://github.com/nobrainer-tech/claude-needs-you",
   "license": "MIT",
-  "keywords": ["hooks", "notifications", "autopilot", "macos", "human-in-the-loop"]
+  "keywords": [
+    "hooks",
+    "notifications",
+    "inbox",
+    "autopilot",
+    "macos",
+    "human-in-the-loop",
+    "multi-session"
+  ]
 }

@@ -1,0 +1,21 @@
+{
+  "NEEDS_YOU_TITLE": "Claude czeka na Ciebie",
+  "NEEDS_YOU_WAITING_COUNT": "czeka",
+  "NEEDS_YOU_HANDLED": "załatwione",
+  "NEEDS_YOU_EMPTY": "Żadna sesja na Ciebie nie czeka.",
+  "NEEDS_YOU_HINT": "Kliknij sesję, aby ją otworzyć. Autopilot odpowiada za tę sesję jej własną rekomendacją, zatwierdza też plany i zgody; scalenia, push, wdrożenia, usuwanie, płatności i hasła czekają na Ciebie.",
+  "NEEDS_YOU_CLEAR": "Wyczyść załatwione",
+  "NEEDS_YOU_ROW_AUTOPILOT": "Autopilot",
+  "NEEDS_YOU_ROW_ON_AUTOPILOT": "Na autopilocie: ta sesja sama odpowiada na swoje pytania.",
+  "NEEDS_YOU_ROW_AP_PENDING": "Autopilot odpowie od następnej prośby. Ta jeszcze czeka: otwórz sesję i odpowiedz.",
+  "NEEDS_YOU_AP_START": "Autopilot do",
+  "NEEDS_YOU_AP_STOP": "Wyłącz autopilota",
+  "NEEDS_YOU_AP_ON": "Autopilot włączony do",
+  "NEEDS_YOU_AP_OFF": "Autopilot wyłączony",
+  "NEEDS_YOU_PLAN": "Plan czeka na Twoją akceptację",
+  "NEEDS_YOU_PERMISSION": "Prośba o zgodę",
+  "NEEDS_YOU_BLOCKED": "Zablokowana akcja",
+  "NEEDS_YOU_WAITING": "Sesja czeka na Ciebie",
+  "NEEDS_YOU_OPEN": "Otwórz",
+  "NEEDS_YOU_LATER": "Później"
+}
