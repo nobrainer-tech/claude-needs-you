@@ -171,7 +171,7 @@ final class Inbox: NSObject {
       doc.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
     ])
 
-    let hint = label(T.hint, font(11), C.muted, lines: 2)
+    let hint = label(T.hint, font(11), C.muted, lines: 0)
     hint.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     let flow = NSButton(title: "", target: nil, action: nil)
     let flowT = Target { NSWorkspace.shared.open(URL(string: "https://github.com/nobrainer-tech/nobrainer-tech-flow")!) }
