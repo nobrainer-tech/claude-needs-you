@@ -1,15 +1,18 @@
 #!/bin/bash
 # nb-autopilot: switch the needs-you autopilot on and off, and read its report.
 #
-# While it is on, a Claude Code session that asks the owner a question is told
-# to take its own recommended answer and carry on (see hooks/needs-you.sh).
-# Logins, payments, merges, publishing, deletions and permission prompts wait.
+# While it is on and the owner is away from the computer (no input for
+# NEEDS_YOU_AUTOPILOT_IDLE_MINUTES, default 5), a session's question gets its
+# own recommended answer, its plan is approved and its permission prompts are
+# granted (see hooks/autopilot.sh). Steps only the owner may take (merge, push,
+# deploy, publish, send, delete, archive, money, accounts, access, credentials,
+# production) always wait. It is on for a day at most.
 #
 #   nb-autopilot on [HH:MM]   all sessions, until the next HH:MM, local time (default 08:00)
 #   nb-autopilot off
 #   nb-autopilot session on|off SESSION_ID [TITLE]
-#                             one session, until it is switched off (the
-#                             needs-you window's checkbox calls this)
+#                             one session, until it is switched off or for a
+#                             day at most (the window's checkbox calls this)
 #   nb-autopilot status
 #   nb-autopilot report       decisions since it was last switched on
 #   nb-autopilot doctor       check what the window and the autopilot need on
