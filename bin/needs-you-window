@@ -1,22 +1,124 @@
 #!/bin/bash
 # needs-you-window: open the needs-you window, or do nothing if it is open.
 #
-# The window is a small Swift program (app/*.swift). It is built
-# once with the Swift compiler of the Xcode Command Line Tools and cached per
-# source version in ~/Library/Caches/needs-you/bin.
+# macOS: a small Swift program (app/*.swift), built once with the Swift
+# compiler of the Xcode Command Line Tools and cached per source version in
+# ~/Library/Caches/needs-you/bin.
+# Linux and Windows (or NEEDS_YOU_WEB=1): a local page, app/web/index.html,
+# copied with its fonts to ~/.claude/needs-you/web/ and opened in the default
+# browser. No server and no network: the page reloads data.js next to it every
+# two seconds, and this script rewrites data.js from the inbox.
 #
-#   needs-you-window            open it (one window per user; a second call is a no-op)
-#   needs-you-window --check    exit 0 when the window can be shown on this Mac
-#   needs-you-window --build    build it now and print the binary's path
-#   needs-you-window --snapshot OUT.png   render the current inbox to a PNG
+#   needs-you-window            open it (macOS: one window per user, a second call is a no-op)
+#   needs-you-window --check    exit 0 when the window can be shown here
+#   needs-you-window --notify   a request arrived: open it if it is not open
+#                               (the page: unless it was opened in the last
+#                               NEEDS_YOU_REOPEN_MINUTES, default 120)
+#   needs-you-window --refresh  the page only: rewrite its data
+#   needs-you-window --build    macOS: build it now and print the binary's path
+#   needs-you-window --snapshot OUT.png   macOS: render the current inbox to a PNG
 # https://github.com/nobrainer-tech/claude-needs-you
 set -u
-PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin"
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+ROOT="$(cd "$(dirname "${0//\\//}")/.." && pwd)"
 DATA="$HOME/.claude/needs-you"
 CACHE="$HOME/Library/Caches/needs-you/bin"
+# shellcheck source=hooks/platform.sh
+. "$ROOT/hooks/platform.sh"
 # Texts and settings, the same as the hook gives the window it opens.
+# shellcheck source=hooks/settings.sh
 command -v jq >/dev/null 2>&1 && . "$ROOT/hooks/settings.sh"
+
+# --- The page (Linux, Windows) -------------------------------------------------
+
+WEB="$DATA/web"
+# The texts the page shows; nothing else of the settings goes into it.
+TEXT_KEYS='TITLE WAITING_COUNT HANDLED EMPTY WEB_HINT CLEAR SHOW_HANDLED ROW_AUTOPILOT ROW_ON_AUTOPILOT ROW_AP_PENDING
+  AP_ON AP_OFF AP_START AP_STOP OPEN_APP COPY COPIED COPY_FAILED RESUME_HINT'
+
+# Copy the page, its fonts and logo when they are missing or changed.
+web_install() {
+  local f
+  mkdir -p "$WEB/fonts" "$DATA/inbox" || return 1
+  cmp -s "$ROOT/app/web/index.html" "$WEB/index.html" || cp "$ROOT/app/web/index.html" "$WEB/index.html" || return 1
+  cmp -s "$ROOT/app/img/logo-64.png" "$WEB/logo-64.png" || cp "$ROOT/app/img/logo-64.png" "$WEB/logo-64.png"
+  for f in "$ROOT"/app/fonts/*.ttf; do
+    cmp -s "$f" "$WEB/fonts/${f##*/}" || cp "$f" "$WEB/fonts/"
+  done
+  return 0
+}
+
+# data.js: needsYou({...}) with the entries of the last day, autopilot and texts.
+# One writer at a time, and each reads the inbox only once it holds the lock, so
+# the snapshot written last is always the newest. Everything reaches jq on
+# stdin, never as an argument: Windows caps a command line at 32767 characters.
+web_refresh() {
+  command -v jq >/dev/null 2>&1 || return 1
+  web_install || return 1
+  ny_lock "$WEB/data.lock" 100 0.05 || return 1
+  local now f tmp ok=1
+  now=$(date +%s)
+  tmp="$WEB/data.js.tmp.$$"
+  {
+    # One entry per line (every writer writes compact JSON); a broken file is skipped.
+    for f in "$DATA"/inbox/*.json; do [ -f "$f" ] && { tr -d '\r\n' < "$f"; echo; }; done \
+      | jq -nRc --argjson now "$now" '[inputs | fromjson? | select(type == "object" and ($now - (.ts // 0)) <= 86400)
+          | {ts, session, title, section, project, msg, link, resume, done, done_ts}]' 2>/dev/null || echo '[]'
+    # The page checks both times again by the clock, so an open tab never shows
+    # an autopilot that has run out.
+    jq -c --argjson now "$now" '
+      ((.until_epoch // 0) > $now and (.until_epoch - $now) <= 86400) as $on
+      | {until: (if $on then .until else null end), until_epoch: (if $on then .until_epoch else null end),
+         sessions: ((.sessions // {}) | with_entries(select((.value.periods // []) | length > 0 and .[-1][1] == null
+                      and ($now - (.[-1][0] // 0)) < 86400))   # a ticked session: a day at most
+                    | map_values({title: (.title // ""), since: .periods[-1][0]}))}' "$DATA/autopilot.json" 2>/dev/null \
+      || echo '{"until":null,"until_epoch":null,"sessions":{}}'
+    # shellcheck disable=SC2086
+    jq -nc --arg keys "$(printf '%s ' $TEXT_KEYS)" '
+      ($keys | split(" ") | map(select(. != ""))) as $k
+      | $ENV | with_entries(select(.key | startswith("NEEDS_YOU_")) | .key |= ltrimstr("NEEDS_YOU_")
+               | select(.key as $x | $k | index($x)) | select(.value != ""))' 2>/dev/null || echo '{}'
+    jq -nc --argjson now "$now" --arg cmd "$ROOT/bin/nb-autopilot" --arg os "$NY_OS" \
+      '{generated: $now, os: $os, autopilot_cmd: $cmd}'
+  } | jq -sr 'select(length == 4) | {entries: .[0], autopilot: .[1], texts: .[2]} + .[3] | "needsYou(\(tojson));"' \
+      > "$tmp" 2>/dev/null && [ -s "$tmp" ] && mv "$tmp" "$WEB/data.js" && ok=0
+  rm -f "$tmp"
+  ny_unlock "$WEB/data.lock"
+  return "$ok"
+}
+
+# The time goes down first, so a second request meanwhile does not open it
+# again, and the browser starts in the background: xdg-open can wait until the
+# browser it started is closed, and the notification must not wait for that.
+web_open() {
+  [ -n "$(ny_opener)" ] || return 1
+  date +%s > "$WEB/opened"
+  ( ny_open "$WEB/index.html" </dev/null >/dev/null 2>&1 & )
+  return 0
+}
+
+# Opened lately: the page reloads its data by itself, so a second tab adds nothing.
+web_opened_lately() {
+  local minutes at
+  minutes=$(ny_int "${NEEDS_YOU_REOPEN_MINUTES:-120}" 120)
+  at=$(cat "$WEB/opened" 2>/dev/null)
+  case "$at" in ''|*[!0-9]*) return 1 ;; esac
+  [ $(( $(date +%s) - at )) -lt $(( minutes * 60 )) ]
+}
+
+if ny_web_inbox; then
+  case "${1:-}" in
+    --check) [ -n "$(ny_opener)" ] ;;
+    --refresh) web_refresh ;;
+    --notify) web_refresh || exit 1; web_opened_lately || web_open ;;
+    --build|--snapshot) echo "needs-you-window: $1 is for the macOS window" >&2; exit 1 ;;
+    *) web_refresh || { echo "needs-you-window: jq is required" >&2; exit 1; }
+       web_open || { echo "needs-you-window: nothing opens $WEB/index.html (install xdg-utils)" >&2; exit 1; } ;;
+  esac
+  exit
+fi
+
+# --- The window (macOS) ----------------------------------------------------------
 
 # Without the Command Line Tools, /usr/bin/swiftc is a stub that offers to
 # install them, so ask xcrun first and never run the stub.
@@ -52,10 +154,13 @@ case "${1:-}" in
     have_swiftc ;;
   --build)
     build ;;
+  --refresh)
+    exit 0 ;;
   --snapshot)
     bin=$(build) || exit 1
     exec "$bin" --inbox "$DATA/inbox" --autopilot "$ROOT/bin/nb-autopilot" --assets "$ROOT/app" --snapshot "${2:?output path}" ;;
   *)
+    # --notify too: the window refreshes itself, so opening it is all.
     bin=$(build) || { echo "needs-you-window: the Swift compiler is missing (xcode-select --install)" >&2; exit 1; }
     mkdir -p "$DATA/inbox"
     nohup "$bin" --inbox "$DATA/inbox" --autopilot "$ROOT/bin/nb-autopilot" --assets "$ROOT/app" </dev/null >/dev/null 2>&1 &

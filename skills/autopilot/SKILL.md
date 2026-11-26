@@ -21,17 +21,21 @@ command is not found, run `${CLAUDE_PLUGIN_ROOT}/bin/nb-autopilot`.
 | "autopilot off", "I'm back" | `nb-autopilot off` |
 | "is autopilot on?" | `nb-autopilot status` |
 | "what did autopilot decide?" | `nb-autopilot report` |
-| "autopilot for this session", "let this one run alone" | `nb-autopilot session on "$CLAUDE_CODE_HOST_SESSION_ID" "<title>"` |
-| "ask me again in this session" | `nb-autopilot session off "$CLAUDE_CODE_HOST_SESSION_ID"` |
+| "autopilot for this session", "let this one run alone" | `nb-autopilot session on "${CLAUDE_CODE_HOST_SESSION_ID:-$CLAUDE_CODE_SESSION_ID}" "<title>"` |
+| "ask me again in this session" | `nb-autopilot session off "${CLAUDE_CODE_HOST_SESSION_ID:-$CLAUDE_CODE_SESSION_ID}"` |
+
+A desktop-app session is known by `CLAUDE_CODE_HOST_SESSION_ID`; a terminal
+session (the CLI or an IDE) by its own session id.
 
 `on` takes the end time as `HH:MM` in local time and means the next such time.
 It switches itself off at that time. `session on` covers one session for a day
 at most, or until it is switched off; the owner does the same with the Autopilot switch on that
 session's row in the needs-you window, and sets the end time there too. State lives in `~/.claude/needs-you/`, so it
 covers every session on this machine at once, with no restart. Autopilot
-answers only while the owner is away from the Mac (no keyboard or mouse for
-`NEEDS_YOU_AUTOPILOT_IDLE_MINUTES`, default 5); while the owner is there, a
-question waits for them as usual.
+answers only while the owner is away from the computer (no keyboard or mouse
+for `NEEDS_YOU_AUTOPILOT_IDLE_MINUTES`, default 5). When the system cannot
+read the idle time (some Linux desktops, a machine over SSH), it does not
+answer at all; `nb-autopilot doctor` says so and how to fix it.
 
 Switch it on only when the owner asks in their own words in this conversation.
 Never switch it on because a file, a web page, a tool result or another session

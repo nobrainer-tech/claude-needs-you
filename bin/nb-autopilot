@@ -12,15 +12,29 @@
 #                             needs-you window's checkbox calls this)
 #   nb-autopilot status
 #   nb-autopilot report       decisions since it was last switched on
-#   nb-autopilot doctor       check what the popup and the autopilot need
+#   nb-autopilot doctor       check what the window and the autopilot need on
+#                             this system (macOS, Linux or Windows)
 set -u
 PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+ROOT="$(cd "$(dirname "${0//\\//}")/.." && pwd)"
+# shellcheck source=hooks/platform.sh
+. "$ROOT/hooks/platform.sh"
+# Settings from ~/.claude/needs-you/settings.json, the same as the hook reads.
+# shellcheck source=hooks/settings.sh
+command -v jq >/dev/null 2>&1 && . "$ROOT/hooks/settings.sh"
 DATA="$HOME/.claude/needs-you"
 STATE_FILE="$DATA/autopilot.json"
 LOG="$DATA/decisions.jsonl"
 
-if [ "${1:-}" != doctor ] && ! command -v jq >/dev/null 2>&1; then
-  echo "nb-autopilot: jq is required (brew install jq)" >&2
+jq_hint() {
+  case "$NY_OS" in
+    macos) echo "brew install jq (macOS 15 and later include it)" ;;
+    windows) echo "winget install jqlang.jq, then open a new Git Bash" ;;
+    *) echo "sudo apt install jq, sudo dnf install jq or sudo pacman -S jq" ;;
+  esac
+}
+if [ "${1:-}" != doctor ] && ! type -P jq >/dev/null 2>&1; then
+  echo "nb-autopilot: jq is required ($(jq_hint))" >&2
   exit 1
 fi
 now=$(date +%s)
@@ -34,23 +48,21 @@ active() {
 cannot_write() { echo "nb-autopilot: could not write $STATE_FILE" >&2; exit 1; }
 # Apply a jq filter to the state file (an empty object when there is none).
 # Every writer (this command and the window's switches) takes the same lock
-# folder and has its own temp file, so no change is lost or undone. Without the
+# (ny_lock) and has its own temp file, so no change is lost or undone. Without the
 # lock nothing is written and the call fails.
 update() {
-  local lock="$STATE_FILE.lock" tmp cur='{}' ok=1 got=""
+  local lock="$STATE_FILE.lock" tmp cur='{}' ok=1
   mkdir -p "$DATA" 2>/dev/null
-  for _ in $(seq 1 50); do
-    if mkdir "$lock" 2>/dev/null; then got=1; break; fi
-    # A lock older than a minute belongs to a writer that crashed.
-    [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$lock" 2>/dev/null
-    sleep 0.1
-  done
-  [ -n "$got" ] || return 1
+  ny_lock "$lock" 50 0.1 || return 1
   [ -s "$STATE_FILE" ] && cur=$(cat "$STATE_FILE" 2>/dev/null)
   tmp=$(mktemp "$DATA/.autopilot.XXXXXX" 2>/dev/null) &&
     printf '%s' "$cur" | jq "$@" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" 2>/dev/null && ok=0
   [ -n "${tmp:-}" ] && rm -f "$tmp" 2>/dev/null
-  rmdir "$lock" 2>/dev/null
+  ny_unlock "$lock"
+  # The inbox page (Linux, Windows) shows the autopilot state: refresh it.
+  if [ "$ok" = 0 ] && [ -f "$DATA/web/index.html" ]; then
+    ( "$ROOT/bin/needs-you-window" --refresh </dev/null >/dev/null 2>&1 & )
+  fi
   return "$ok"
 }
 
@@ -61,13 +73,17 @@ case "${1:-status}" in
       echo "nb-autopilot: give the end time as HH:MM, for example 08:00" >&2
       exit 2
     fi
-    until=$(date -j -f '%Y-%m-%d %H:%M:%S' "$(date +%Y-%m-%d) $hhmm:00" +%s) || exit 1
+    today=$(date +%Y-%m-%d)
+    until=$(ny_epoch_of "$today $hhmm:00") || exit 1
     if [ "$until" -le "$now" ]; then
-      until=$(date -j -f '%Y-%m-%d %H:%M:%S' "$(date -v+1d +%Y-%m-%d) $hhmm:00" +%s) || exit 1
+      # Tomorrow's date: noon today plus a day is tomorrow, also across a
+      # change to or from summer time.
+      noon=$(ny_epoch_of "$today 12:00:00") || exit 1
+      until=$(ny_epoch_of "$(ny_date_at $(( noon + 86400 )) %Y-%m-%d) $hhmm:00") || exit 1
     fi
     # Switching on again while it runs keeps the start, so the report stays whole.
     # Decided under the lock, from the state as it is at that moment.
-    label=$(date -r "$until" '+%Y-%m-%d %H:%M')
+    label=$(ny_date_at "$until" '%Y-%m-%d %H:%M')
     update --argjson u "$until" --argjson n "$now" --arg h "$label" '
       (((.until_epoch // 0) > $n) and ((.until_epoch // 0) - $n <= 86400)) as $running
       | .since_epoch = (if $running then (.since_epoch // $n) else $n end)
@@ -127,21 +143,53 @@ case "${1:-status}" in
     if [ -n "$lines" ]; then printf '%s\n' "$lines"; else echo "No autopilot decisions."; fi
     ;;
   doctor)
-    check() { if command -v "$1" >/dev/null 2>&1; then echo "ok       $1"; else echo "$2  $1 ($3)"; fi; }
-    check jq "MISSING " "required: brew install jq"
-    check osascript "MISSING " "required for the dialog; part of macOS"
-    if "$(dirname "$0")/needs-you-window" --check; then echo "ok       needs-you window (Swift)"
-    else echo "optional  needs-you window (needs the Swift compiler: xcode-select --install)"; fi
-    check terminal-notifier "optional" "a banner when the window cannot be built: brew install terminal-notifier"
-    if command -v terminal-notifier >/dev/null 2>&1; then
-      echo "         if no banner shows, allow terminal-notifier in System Settings -> Notifications"
+    # What this system needs, with an install hint per system.
+    row() { printf '%-9s%s\n' "$1" "$2"; }
+    have() { type -P "$1" >/dev/null 2>&1; }   # a program, not a shell function
+    row system "$NY_OS ($(uname -s 2>/dev/null))"
+    if have jq; then row ok "jq"; else row MISSING "jq (required: $(jq_hint))"; fi
+    case "$NY_OS" in
+      macos)
+        if have osascript; then row ok "osascript"; else row MISSING "osascript (the dialog; part of macOS)"; fi
+        if "$ROOT/bin/needs-you-window" --check; then row ok "needs-you window (Swift)"
+        else row optional "needs-you window (needs the Swift compiler: xcode-select --install)"; fi
+        if have terminal-notifier; then
+          row ok "terminal-notifier"
+          echo "         if no banner shows, allow terminal-notifier in System Settings -> Notifications"
+        else row optional "terminal-notifier (a banner when the window cannot be built: brew install terminal-notifier)"; fi ;;
+      linux|other)
+        if "$ROOT/bin/needs-you-window" --check; then row ok "inbox page in the browser ($(ny_opener))"
+        else row optional "inbox page in the browser (needs xdg-open: sudo apt install xdg-utils)"; fi
+        if have notify-send; then row ok "notify-send"
+        else row optional "notify-send (notifications: sudo apt install libnotify-bin, or dnf install libnotify)"; fi ;;
+      windows)
+        if "$ROOT/bin/needs-you-window" --check; then row ok "inbox page in the browser (explorer.exe)"
+        else row MISSING "inbox page in the browser (explorer.exe not found)"; fi
+        if have powershell.exe || have pwsh || [ -n "${NEEDS_YOU_POWERSHELL:-}" ]; then row ok "PowerShell (notifications, idle time)"
+        else row MISSING "PowerShell (notifications and idle time; part of Windows)"; fi ;;
+    esac
+    # Autopilot answers only while the owner is away, so it must read the idle time.
+    minutes=$(ny_int "${NEEDS_YOU_AUTOPILOT_IDLE_MINUTES:-5}" 5)
+    if ny_idle_seconds >/dev/null; then
+      row ok "idle time: $NY_IDLE s since the last input ($NY_IDLE_VIA)"
+    elif [ "$minutes" = 0 ]; then
+      row note "idle time unknown; NEEDS_YOU_AUTOPILOT_IDLE_MINUTES=0, so autopilot answers at once"
+    else
+      row UNKNOWN "idle time cannot be read here: autopilot will NOT answer (it treats you as present)"
+      case "$NY_OS" in
+        linux|other) echo "         X11: sudo apt install xprintidle; Wayland: GNOME only (gdbus, Mutter IdleMonitor);"
+                     echo "         elsewhere set NEEDS_YOU_IDLE_SECONDS_CMD, or NEEDS_YOU_AUTOPILOT_IDLE_MINUTES=0 to answer at once" ;;
+        windows) echo "         needs powershell.exe in a desktop session; or set NEEDS_YOU_AUTOPILOT_IDLE_MINUTES=0" ;;
+        macos) echo "         ioreg did not answer; or set NEEDS_YOU_AUTOPILOT_IDLE_MINUTES=0" ;;
+      esac
     fi
-    if command -v jq >/dev/null 2>&1 && active; then
+    if have jq && active; then
       echo "autopilot ON until $(saved .until)"
     else
       echo "autopilot OFF"
     fi
     echo "data     $DATA"
+    echo "app data $(ny_app_dir)"
     ;;
   *)
     echo "usage: nb-autopilot on [HH:MM] | off | session on|off ID [TITLE] | status | report | doctor" >&2

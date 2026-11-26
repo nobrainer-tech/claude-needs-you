@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<!--
+  Needs You: every Claude Code session that waits for you, in one page.
+  The Linux and Windows twin of the macOS window (app/*.swift). It is a local
+  file: no server, no network, no asset from outside this folder. bin/needs-you-window
+  copies it to ~/.claude/needs-you/web/ and rewrites data.js next to it from the
+  inbox; this page loads data.js again every two seconds.
+  https://github.com/nobrainer-tech/claude-needs-you
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' file:; style-src 'unsafe-inline'; font-src file:; img-src file:">
+<title>Claude needs you</title>
+<link rel="icon" href="logo-64.png">
+<style>
+  @font-face { font-family: "NoBrainer Sans"; font-weight: 400; src: url("fonts/NoBrainerSans-Regular.ttf"); }
+  @font-face { font-family: "NoBrainer Sans"; font-weight: 500; src: url("fonts/NoBrainerSans-Medium.ttf"); }
+  @font-face { font-family: "NoBrainer Sans"; font-weight: 600; src: url("fonts/NoBrainerSans-SemiBold.ttf"); }
+  @font-face { font-family: "NoBrainer Sans"; font-weight: 700; src: url("fonts/NoBrainerSans-Bold.ttf"); }
+  @font-face { font-family: "NoBrainer Sans"; font-weight: 800; src: url("fonts/NoBrainerSans-ExtraBold.ttf"); }
+  :root {
+    --canvas: #F4F3EE; --surface: #FFFCF7; --ink: #202124; --muted: #485162; --border: #ABB7CC;
+    --blue: #3B65F0; --orange: #F04A14;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--canvas); color: var(--ink); }
+  body { font: 400 14px/1.4 "NoBrainer Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 18px 16px 14px; }
+  header { display: flex; align-items: center; gap: 10px; }
+  header img { width: 30px; height: 30px; }
+  h1 { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -0.01em; }
+  h1 .count { margin-left: 10px; font-size: 13px; font-weight: 700; color: var(--orange); }
+  .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  .status { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .status.on { color: var(--blue); }
+  .spacer { flex: 1; }
+  button { font: 600 12px/1 "NoBrainer Sans", system-ui, sans-serif; color: var(--blue); background: transparent;
+    border: 1.2px solid var(--blue); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+  button.filled { background: var(--blue); color: #fff; border-color: var(--blue); }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+  input[type=time] { font: 600 13px "NoBrainer Sans", system-ui, sans-serif; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li { position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px 5px 16px 5px; padding: 10px 12px 11px 16px; }
+  li.waiting::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--orange); }
+  li.done { background: transparent; border-color: rgba(171, 183, 204, .5); opacity: .55; }
+  .meta { font-size: 11px; font-weight: 500; color: var(--muted); }
+  .head { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+  .title { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pill { font-size: 11px; font-weight: 600; color: var(--blue); border: 1.2px solid var(--blue); border-radius: 7px; padding: 3px 7px; white-space: nowrap; }
+  .pill.on { background: var(--blue); color: #fff; }
+  .msg { margin-top: 3px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .act { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .act a { font-size: 12px; font-weight: 600; color: var(--blue); text-decoration: none; border: 1.2px solid var(--blue);
+    border-radius: 7px; padding: 5px 10px; }
+  code { flex: 1; min-width: 0; font: 12px/1.4 ui-monospace, "SF Mono", Consolas, "DejaVu Sans Mono", monospace;
+    background: var(--canvas); border: 1px solid rgba(171, 183, 204, .7); border-radius: 6px; padding: 5px 8px;
+    white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+  .empty { color: var(--muted); font-weight: 500; padding: 8px 0; }
+  .hint { margin: 12px 0 4px; font-size: 11px; color: var(--muted); }
+  footer { display: flex; justify-content: flex-end; }
+  footer a { font-size: 12px; font-weight: 800; color: var(--blue); text-decoration: none; }
+  footer a span:first-child { color: var(--ink); } footer a span.dot { color: var(--orange); }
+  .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink); color: #fff;
+    font-size: 12px; font-weight: 600; padding: 8px 12px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  @media (max-width: 420px) { .bar .spacer { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="logo-64.png" alt=""><h1 id="heading">Claude needs you</h1></header>
+  <div class="bar" id="bar"></div>
+  <ol id="list"></ol>
+  <p class="hint" id="hint"></p>
+  <footer><a href="https://github.com/nobrainer-tech/nobrainer-tech-flow" target="_blank" rel="noopener"><span>nobrainer</span><span class="dot">.</span><span>tech/flow ↗</span></a></footer>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+// Texts: English here, the rest from NEEDS_YOU_* settings (texts/<lang>.json).
+const EN = {
+  TITLE: "Claude needs you", WAITING_COUNT: "waiting", HANDLED: "handled",
+  EMPTY: "No session is waiting for you.",
+  WEB_HINT: "Open a desktop-app session with its button. For a terminal session, copy the command and run it in a terminal. Autopilot switches copy a command: run it in a terminal, or tell any session \"autopilot until 8\".",
+  CLEAR: "Hide handled", SHOW_HANDLED: "Show handled", ROW_AUTOPILOT: "Autopilot",
+  ROW_ON_AUTOPILOT: "On autopilot: this session answers its own questions.",
+  ROW_AP_PENDING: "Autopilot answers from the next request. This one is still waiting: open the session and answer it.",
+  AP_ON: "Autopilot on until", AP_OFF: "Autopilot off", AP_START: "Autopilot until", AP_STOP: "Stop autopilot",
+  OPEN_APP: "Open in Claude", COPY: "Copy", COPIED: "Copied. Paste it in a terminal.",
+  COPY_FAILED: "Could not copy the command. Select it and copy it by hand.",
+  RESUME_HINT: "Return to it in a terminal:"
+};
+let T = EN, data = null, signature = "";
+const $ = (id) => document.getElementById(id);
+const hidden = () => localStorage.getItem("needs-you-hide-handled") === "1";
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;   // text only: nothing from the inbox becomes markup
+  return e;
+}
+function q(s) { return /^[A-Za-z0-9_.\/:~-]+$/.test(s) ? s : "'" + s.replace(/'/g, "'\\''") + "'"; }
+function timeLabel(ts) {
+  const d = new Date(ts * 1000), now = new Date(), p = (n) => String(n).padStart(2, "0");
+  const hm = p(d.getHours()) + ":" + p(d.getMinutes());
+  return d.toDateString() === now.toDateString() ? hm : p(d.getDate()) + "." + p(d.getMonth() + 1) + " " + hm;
+}
+function toast(text) {
+  const t = $("toast");
+  t.textContent = text; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+// "Copied" only when the clipboard took it; otherwise the command is left
+// selected on the page (in its code box when it has one) for Ctrl+C.
+async function copy(text, box) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; }
+  catch (_) {
+    const a = el("textarea"); a.value = text; document.body.appendChild(a); a.select();
+    try { ok = document.execCommand("copy") === true; } catch (_) { ok = false; }
+    a.remove();
+  }
+  if (!ok) {
+    const sel = window.getSelection(), r = document.createRange();
+    if (box) { r.selectNodeContents(box); sel.removeAllRanges(); sel.addRange(r); }
+    else { window.prompt(T.COPY_FAILED, text); }
+  }
+  toast(ok ? T.COPIED : T.COPY_FAILED);
+  return ok;
+}
+function button(label, filled, onClick) {
+  const b = el("button", filled ? "filled" : "", label);
+  b.type = "button"; b.addEventListener("click", onClick);
+  return b;
+}
+function apCmd(args) { return q(data.autopilot_cmd) + " " + args; }
+
+function render() {
+  const entries = (data.entries || []).slice().sort((a, b) =>
+    a.done !== b.done ? (a.done ? 1 : -1) : a.done ? (b.done_ts || 0) - (a.done_ts || 0) : b.ts - a.ts);
+  // Autopilot runs out by the clock, also while nothing writes data.js.
+  const ap = data.autopilot || {}, now = Date.now() / 1000, sessions = {};
+  for (const [id, s] of Object.entries(ap.sessions || {})) {
+    if (s && typeof s === "object" && now - (s.since || 0) < 86400) sessions[id] = s.title || "";
+  }
+  const until = ap.until && ap.until_epoch > now ? ap.until : null;
+  const waiting = entries.filter((e) => !e.done).length;
+
+  const h = $("heading"); h.textContent = T.TITLE;
+  if (waiting) h.appendChild(el("span", "count", waiting + " " + T.WAITING_COUNT));
+  document.title = waiting ? T.TITLE + " (" + waiting + ")" : T.TITLE;
+
+  const bar = $("bar"); bar.replaceChildren();
+  if (until) {
+    bar.append(el("span", "status on", "● " + T.AP_ON + " " + String(until).slice(-5)), el("span", "spacer"),
+      button(T.AP_STOP, false, () => copy(apCmd("off"))));
+  } else {
+    const time = el("input"); time.type = "time"; time.value = localStorage.getItem("needs-you-until") || "08:00";
+    time.addEventListener("change", () => localStorage.setItem("needs-you-until", time.value));
+    bar.append(el("span", "status", "○ " + T.AP_OFF), el("span", "spacer"),
+      button(T.AP_START, true, () => copy(apCmd("on " + (time.value || "08:00")))), time);
+  }
+  if (entries.some((e) => e.done)) {
+    bar.append(button(hidden() ? T.SHOW_HANDLED : T.CLEAR, false, () => {
+      localStorage.setItem("needs-you-hide-handled", hidden() ? "0" : "1"); render();
+    }));
+  }
+
+  // A session on its own autopilot keeps a row, and so its switch.
+  const listed = new Set(entries.map((e) => e.session));
+  const quiet = Object.keys(sessions).filter((id) => !listed.has(id)).sort()
+    .map((id) => ({ session: id, title: sessions[id], msg: T.ROW_ON_AUTOPILOT, done: true, quiet: true,
+                    link: id.startsWith("local_") ? "claude://claude.ai/epitaxy/" + id : "" }));
+  const rows = entries.filter((e) => !(e.done && hidden())).concat(quiet);
+  const list = $("list"); list.replaceChildren();
+  if (!rows.length) { list.appendChild(el("li", "empty", T.EMPTY)); }
+  for (const e of rows) {
+    const li = el("li", e.done ? "done" : "waiting");
+    if (!e.quiet) {
+      li.appendChild(el("div", "meta", [timeLabel(e.ts), e.section, e.project].filter(Boolean)
+        .concat(e.done ? [T.HANDLED] : []).join("  ·  ")));
+    }
+    const head = el("div", "head");
+    head.appendChild(el("div", "title", e.title || "Claude Code"));
+    const on = Object.prototype.hasOwnProperty.call(sessions, e.session);
+    if (e.session && e.session !== "none") {
+      const pill = el("button", "pill" + (on ? " on" : ""), (on ? "● " : "○ ") + T.ROW_AUTOPILOT);
+      pill.type = "button";
+      pill.addEventListener("click", () => copy(apCmd("session " + (on ? "off" : "on") + " " + q(e.session) +
+        (on ? "" : " " + q(e.title || "")))));
+      head.appendChild(pill);
+    }
+    li.appendChild(head);
+    // Autopilot answers when a request arrives; one already waiting says so.
+    li.appendChild(el("div", "msg", on && !e.done && !e.quiet ? (e.msg || "") + "\n" + T.ROW_AP_PENDING : e.msg || ""));
+    const act = el("div", "act");
+    if (/^claude:\/\/claude\.ai\/epitaxy\/[A-Za-z0-9_.-]+$/.test(e.link || "")) {
+      const a = el("a", "", T.OPEN_APP); a.href = e.link; act.appendChild(a);
+    } else if (e.resume) {
+      const box = el("code", "", e.resume);
+      act.append(box, button(T.COPY, true, () => copy(e.resume, box)));
+      act.title = T.RESUME_HINT;
+    }
+    if (act.childNodes.length) li.appendChild(act);
+    list.appendChild(li);
+  }
+  $("hint").textContent = T.WEB_HINT;
+}
+
+// data.js calls this; it is loaded again every two seconds.
+window.needsYou = function (d) {
+  data = d;
+  T = Object.assign({}, EN, d.texts || {});
+  // The minute too: autopilot may run out while data.js stays the same.
+  const sig = JSON.stringify([d.entries, d.autopilot, d.texts, hidden(), Math.floor(Date.now() / 60000)]);
+  if (sig !== signature) { signature = sig; render(); }
+};
+function load() {
+  const s = document.createElement("script");
+  s.src = "data.js?t=" + Date.now();
+  s.onload = s.onerror = () => s.remove();
+  document.head.appendChild(s);
+}
+load();
+setInterval(load, 2000);
+setTimeout(() => { if (!data) { data = { entries: [], autopilot: {}, autopilot_cmd: "nb-autopilot" }; render(); } }, 1500);
+</script>
+</body>
+</html>
