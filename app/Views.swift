@@ -3,17 +3,6 @@ import AppKit
 
 // --- Views -------------------------------------------------------------------
 
-func label(_ s: String, _ f: NSFont, _ color: NSColor, lines: Int = 1) -> NSTextField {
-  let l = NSTextField(wrappingLabelWithString: s)
-  l.font = f
-  l.textColor = color
-  l.maximumNumberOfLines = lines
-  l.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
-  l.cell?.truncatesLastVisibleLine = true
-  l.isSelectable = false
-  return l
-}
-
 final class Target: NSObject {
   let f: () -> Void
   init(_ f: @escaping () -> Void) { self.f = f }
@@ -66,6 +55,7 @@ class Card: NSView {
 // One session. A click anywhere but the autopilot switch opens it.
 final class RowView: Card {
   let entry: Entry
+  var resume: NSTextField?
   var onOpen: ((Entry) -> Void)?
   init(_ e: Entry, autopilot: Bool, onToggle: @escaping (Entry, Bool) -> Void) {
     entry = e
@@ -79,13 +69,16 @@ final class RowView: Card {
     // shown before it was ticked, so it says so instead of looking answered.
     let pending = autopilot && !e.done && !e.file.isEmpty
     let msg = label(pending ? "\(e.msg)\n\(T.rowApPending)" : e.msg, font(13), C.ink, lines: 7)
+    // A terminal session has no link: a click copies the command that returns to it.
+    resume = e.link.isEmpty && !e.resume.isEmpty
+      ? label("\(T.resumeHint)\n\(e.resume)", NSFont.monospacedSystemFont(ofSize: 11, weight: .regular), C.muted, lines: 4) : nil
     let toggle = Target { onToggle(e, !autopilot) }
     let sw = pill((autopilot ? "● " : "○ ") + T.rowAutopilot, filled: autopilot, size: 11, toggle)
     sw.isEnabled = !e.session.isEmpty && e.session != "none"
     let head = NSStackView(views: [title, NSView(), sw])
     head.orientation = .horizontal
     title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    let col = NSStackView(views: [top, head, msg])
+    let col = NSStackView(views: [top, head, msg] + (resume.map { [$0] } ?? []))
     col.orientation = .vertical
     col.alignment = .leading
     col.spacing = 3
@@ -98,6 +91,7 @@ final class RowView: Card {
       head.widthAnchor.constraint(equalTo: col.widthAnchor, constant: -28),
       msg.widthAnchor.constraint(equalTo: head.widthAnchor),
     ])
+    resume?.widthAnchor.constraint(equalTo: head.widthAnchor).isActive = true
   }
   required init?(coder: NSCoder) { nil }
   override func mouseUp(with event: NSEvent) { onOpen?(entry) }
@@ -266,7 +260,12 @@ final class Inbox: NSObject {
         runAutopilot(["session", on ? "on" : "off", e.session, e.title])
         self.refresh(force: true)
       }
-      row.onOpen = { [unowned self] e in
+      row.onOpen = { [unowned self, unowned row] e in
+        // Copied, not handled: the request waits until you answer it there.
+        if e.link.isEmpty && !e.resume.isEmpty {
+          row.resume?.stringValue = copyResume(e) ? "✓ \(T.copied)\n\(e.resume)" : "\(T.copyFailed)\n\(e.resume)"
+          return
+        }
         if let u = URL(string: e.link), !e.link.isEmpty { NSWorkspace.shared.open(u) }
         markDone(e)
         self.refresh(force: true)

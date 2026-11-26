@@ -10,25 +10,46 @@ permissions:
 
 jobs:
   test:
-    name: Hook, autopilot and window (macOS)
-    runs-on: macos-latest
-    timeout-minutes: 15
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        # Git Bash on Windows: the shell Claude Code runs hooks with there.
+        shell: bash
     steps:
       - uses: actions/checkout@v4
+      - name: jq
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            case "$RUNNER_OS" in
+              Windows) choco install jq -y --no-progress ;;
+              Linux) sudo apt-get install -y jq ;;
+              macOS) brew install jq ;;
+            esac
+          fi
+          jq --version
       - name: Syntax
         run: for f in hooks/*.sh bin/nb-autopilot bin/needs-you-window bin/needs-you-scan tests/*.sh; do bash -n "$f" || exit 1; done
       - name: Manifests are valid JSON
-        run: jq -e . .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json > /dev/null
+        run: jq -e . .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json texts/*.json > /dev/null
       - name: Inbox
         run: bash tests/test.sh
       - name: Autopilot
         run: bash tests/autopilot-test.sh
       - name: Scan of sessions that already wait
         run: bash tests/scan-test.sh
+      - name: Per system (Linux, Windows and macOS branches)
+        run: bash tests/platform-test.sh
       - name: Window (Swift)
+        if: runner.os == 'macOS'
         run: bash tests/window-test.sh window.png
       - name: Window screenshot
-        if: always()
+        if: always() && runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: window

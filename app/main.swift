@@ -3,7 +3,8 @@
 // The hook writes one JSON file per session to the inbox folder. This window
 // shows them, waiting ones first (newest on top) and handled ones greyed out at
 // the bottom. It refreshes in place and never takes focus after it opens.
-// Clicking a session opens it in the Claude desktop app and marks it handled.
+// Clicking a session opens it in the Claude desktop app and marks it handled;
+// clicking a terminal session copies the command that returns to it.
 // A switch per session and a button for all sessions turn the autopilot on.
 //
 //   needs-you-window --inbox DIR --autopilot NB_AUTOPILOT --assets APP_DIR
@@ -22,7 +23,7 @@ func text(_ key: String, _ fallback: String) -> String {
 let T = (
   title: text("NEEDS_YOU_TITLE", "Claude needs you"),
   empty: text("NEEDS_YOU_EMPTY", "No session is waiting for you."),
-  hint: text("NEEDS_YOU_HINT", "Click a session to open it. Autopilot answers for that session: its recommended answer, plans, permissions. Merges, pushes, deploys, deletes, payments and secrets still wait for you."),
+  hint: text("NEEDS_YOU_HINT", "Click a session to open it; a terminal session copies the command that returns to it. Autopilot answers for that session: its recommended answer, plans, permissions. Merges, pushes, deploys, deletes, payments and secrets still wait for you."),
   clear: text("NEEDS_YOU_CLEAR", "Clear handled"),
   rowAutopilot: text("NEEDS_YOU_ROW_AUTOPILOT", "Autopilot"),
   apStart: text("NEEDS_YOU_AP_START", "Autopilot until"),
@@ -32,7 +33,10 @@ let T = (
   waiting: text("NEEDS_YOU_WAITING_COUNT", "waiting"),
   handled: text("NEEDS_YOU_HANDLED", "handled"),
   rowOnAutopilot: text("NEEDS_YOU_ROW_ON_AUTOPILOT", "On autopilot: this session answers its own questions."),
-  rowApPending: text("NEEDS_YOU_ROW_AP_PENDING", "Autopilot answers from the next request. This one is still waiting: open the session and answer it.")
+  rowApPending: text("NEEDS_YOU_ROW_AP_PENDING", "Autopilot answers from the next request. This one is still waiting: open the session and answer it."),
+  resumeHint: text("NEEDS_YOU_RESUME_HINT", "Return to it in a terminal:"),
+  copied: text("NEEDS_YOU_COPIED", "Copied. Paste it in a terminal."),
+  copyFailed: text("NEEDS_YOU_COPY_FAILED", "Could not copy the command. Select it and copy it by hand.")
 )
 
 var inboxDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/needs-you/inbox")

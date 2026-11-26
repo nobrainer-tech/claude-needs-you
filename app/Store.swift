@@ -25,10 +25,22 @@ func logo(_ name: String) -> NSImage? {
   NSImage(contentsOfFile: (assetsDir as NSString).appendingPathComponent("img/\(name)"))
 }
 
+func label(_ s: String, _ f: NSFont, _ color: NSColor, lines: Int = 1) -> NSTextField {
+  let l = NSTextField(wrappingLabelWithString: s)
+  l.font = f
+  l.textColor = color
+  l.maximumNumberOfLines = lines
+  l.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
+  l.cell?.truncatesLastVisibleLine = true
+  l.isSelectable = false
+  return l
+}
+
 // --- Data --------------------------------------------------------------------
 
 struct Entry {
   let file, session, title, section, project, msg, link: String
+  var resume = ""   // a terminal session: the command that returns to it
   let ts, doneTs: TimeInterval
   let done: Bool
 }
@@ -61,7 +73,7 @@ func loadEntries() -> [Entry] {
     }
     out.append(Entry(file: path, session: str(j["session"]), title: str(j["title"]),
                      section: str(j["section"]), project: str(j["project"]), msg: str(j["msg"]),
-                     link: str(j["link"]), ts: ts, doneTs: num(j["done_ts"]),
+                     link: str(j["link"]), resume: str(j["resume"]), ts: ts, doneTs: num(j["done_ts"]),
                      done: (j["done"] as? Bool) ?? false))
   }
   return out.sorted {
@@ -86,15 +98,26 @@ func loadAutopilot() -> Autopilot {
   return Autopilot(until: u > now && u - now <= dayAgo ? str(j["until"]) : nil, sessions: sessions)
 }
 
-// Every writer of an entry (the hook and this window) holds its lock folder, so
+// Every writer of an entry (the hook and this window) holds its lock, so
 // a check and the write that follows it see the same request. A lock older than
-// a minute belongs to a writer that crashed.
+// a minute belongs to a writer that crashed; it is removed only by the writer
+// that holds LOCK.break and finds it still stale, as ny_break_stale does.
+func isStale(_ path: String) -> Bool {
+  guard let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return false }
+  return Date().timeIntervalSince(m) > 60
+}
+func breakStale(_ lock: String) {
+  let brk = lock + ".break", fd = open(brk, O_CREAT | O_EXCL | O_WRONLY, 0o600)
+  guard fd >= 0 else { if isStale(brk) { unlink(brk) }; return }
+  close(fd)
+  if isStale(lock) { rmdir(lock); unlink(lock) }
+  unlink(brk)
+}
 func withEntryLock(_ file: String, _ body: () -> Void) {
   let lock = file + ".lock"
   for _ in 0..<40 {
     if mkdir(lock, 0o700) == 0 { body(); rmdir(lock); return }
-    if let m = (try? FileManager.default.attributesOfItem(atPath: lock))?[.modificationDate] as? Date,
-       Date().timeIntervalSince(m) > 60 { rmdir(lock) }
+    if isStale(lock) { breakStale(lock) }
     usleep(50_000)
   }
 }
@@ -121,6 +144,13 @@ func markDone(_ e: Entry) {
     j["done_ts"] = Int(Date().timeIntervalSince1970)
     writeJSON(j, e.file)
   }
+}
+
+// A terminal session has no link: its command goes to the clipboard instead.
+func copyResume(_ e: Entry) -> Bool {
+  guard e.link.isEmpty, !e.resume.isEmpty else { return false }
+  NSPasteboard.general.clearContents()
+  return NSPasteboard.general.setString(e.resume, forType: .string)
 }
 
 func runAutopilot(_ arguments: [String]) {

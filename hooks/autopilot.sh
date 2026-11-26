@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Autopilot part of hooks/needs-you.sh (sourced; uses its variables: INPUT,
-# EVENT, TOOL, MSG, SID, TITLE, DATA and field()).
+# EVENT, TOOL, MSG, SID, TITLE, DATA and field(), and hooks/platform.sh).
 #
 # While autopilot is on for this session (its switch in the window) or for all
 # sessions (until a set time), the owner is away. Then:
@@ -23,13 +23,13 @@ AP=$(jq -r --arg id "$SID" --argjson now "$NOW" '
 
 # Autopilot answers only while the owner is away: no keyboard or mouse input
 # for NEEDS_YOU_AUTOPILOT_IDLE_MINUTES (default 5; 0 answers at once). While you
-# are at the Mac, a request waits for you in the window, autopilot or not.
+# are at the computer, or when this system cannot tell (hooks/platform.sh), a
+# request waits for you in the window, autopilot or not.
 autopilot_owner_away() {
-  local minutes="${NEEDS_YOU_AUTOPILOT_IDLE_MINUTES:-5}" idle_ns
+  local minutes
+  minutes=$(ny_int "${NEEDS_YOU_AUTOPILOT_IDLE_MINUTES:-5}" 5)
   [ "$minutes" = 0 ] && return 0
-  idle_ns=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/HIDIdleTime/ {print $NF; exit}')
-  [ -n "$idle_ns" ] || return 0
-  [ "$(( idle_ns / 60000000000 ))" -ge "$minutes" ] 2>/dev/null
+  ny_owner_away "$minutes" 5
 }
 
 # Steps only the owner may take, in English and Polish: merging, pushing,
@@ -51,7 +51,7 @@ autopilot_owner_only() {
 # return 1 and the request goes to the inbox as usual.
 autopilot_decide() {  # decision text, hook output JSON
   mkdir -p "$DATA" 2>/dev/null
-  jq -nc --argjson ts "$NOW" --arg time "$(date '+%F %H:%M')" --arg session "$SID" \
+  jq -nc --argjson ts "$NOW" --arg time "$(date '+%Y-%m-%d %H:%M')" --arg session "$SID" \
      --arg title "$TITLE" --arg tool "$TOOL" --arg decision "$1" \
      '{ts:$ts,time:$time,session:$session,title:$title,tool:$tool,decision:$decision}' \
      2>/dev/null >> "$DATA/decisions.jsonl" || return 1

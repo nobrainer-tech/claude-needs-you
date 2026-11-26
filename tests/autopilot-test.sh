@@ -81,10 +81,14 @@ out=$(echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_inp
 check ap-plan-with-deploy-not-approved "$out" "permissionDecision" 0
 same ap-plan-with-deploy-in-inbox "$(entry .msg)" "A plan is waiting for your approval"
 # Without a record there is no approval either.
-chmod 400 "$HOME/.claude/needs-you/decisions.jsonl"
-out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}' | "$HOOK")
-chmod 600 "$HOME/.claude/needs-you/decisions.jsonl"
-check ap-unlogged-permission-not-allowed "$out" "behavior" 0
+if readonly_works; then
+  chmod 400 "$HOME/.claude/needs-you/decisions.jsonl"
+  out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}' | "$HOOK")
+  chmod 600 "$HOME/.claude/needs-you/decisions.jsonl"
+  check ap-unlogged-permission-not-allowed "$out" "behavior" 0
+else
+  skip ap-unlogged-permission-not-allowed "no read-only files here"
+fi
 
 report=$("$AP" report)
 check ap-report-question "$report" "Which path? -> Path B (Recommended)" 1
@@ -111,23 +115,31 @@ check ap-doctor "$("$AP" doctor)" "ok       jq" 1
 # No record, no answer: when the decision log cannot be written, autopilot does
 # not answer for the owner and the request goes to the inbox instead.
 "$AP" on 23:59 >/dev/null
-chmod 400 "$HOME/.claude/needs-you/decisions.jsonl"
-before=$(wc -l < "$HOME/.claude/needs-you/decisions.jsonl")
-out=$(fire "Question when the log is read-only")
-chmod 600 "$HOME/.claude/needs-you/decisions.jsonl"
-check ap-unlogged-no-deny "$out" "permissionDecision" 0
-same ap-unlogged-inbox "$(entry .msg)" "Question when the log is read-only"
-same ap-unlogged-log-unchanged "$(wc -l < "$HOME/.claude/needs-you/decisions.jsonl")" "$before"
+if readonly_works; then
+  chmod 400 "$HOME/.claude/needs-you/decisions.jsonl"
+  before=$(wc -l < "$HOME/.claude/needs-you/decisions.jsonl")
+  out=$(fire "Question when the log is read-only")
+  chmod 600 "$HOME/.claude/needs-you/decisions.jsonl"
+  check ap-unlogged-no-deny "$out" "permissionDecision" 0
+  same ap-unlogged-inbox "$(entry .msg)" "Question when the log is read-only"
+  same ap-unlogged-log-unchanged "$(wc -l < "$HOME/.claude/needs-you/decisions.jsonl")" "$before"
+else
+  skip ap-unlogged-no-deny "no read-only files here"
+fi
 "$AP" off >/dev/null
 
 # A failed write is reported, not hidden behind "Autopilot OFF".
-"$AP" on 23:59 >/dev/null
-chmod 500 "$HOME/.claude/needs-you"
-out=$("$AP" off 2>&1; echo "exit=$?")
-chmod 700 "$HOME/.claude/needs-you"
-check ap-off-failure-is-reported "$out" "could not write" 1
-check ap-off-failure-exit-code "$out" "exit=1" 1
-"$AP" off >/dev/null
+if readonly_dir_works; then
+  "$AP" on 23:59 >/dev/null
+  chmod 500 "$HOME/.claude/needs-you"
+  out=$("$AP" off 2>&1; echo "exit=$?")
+  chmod 700 "$HOME/.claude/needs-you"
+  check ap-off-failure-is-reported "$out" "could not write" 1
+  check ap-off-failure-exit-code "$out" "exit=1" 1
+  "$AP" off >/dev/null
+else
+  skip ap-off-failure-is-reported "no read-only folders here"
+fi
 
 # --- Autopilot for one session ------------------------------------------------
 
@@ -161,9 +173,15 @@ check ap-on-again-keeps-period "$("$AP" report)" "Ticked again question -> your 
 same ap-on-again-one-open-period "$(jq '.sessions.local_test.periods | map(select(.[1] == null)) | length' "$HOME/.claude/needs-you/autopilot.json")" "1"
 "$AP" session off local_test >/dev/null
 
-# Writers that race keep both changes.
-for i in 1 2 3 4 5 6; do "$AP" session on "local_r$i" >/dev/null & done; wait
-same ap-parallel-writes-kept "$(jq '[.sessions | keys[] | select(startswith("local_r"))] | length' "$HOME/.claude/needs-you/autopilot.json")" "6"
+# Writers that race keep every change, round after round (a lock that two
+# writers can take at once loses one now and then, not every time).
+lost=""
+for round in 1 2 3 4 5; do
+  for i in 1 2 3 4 5 6; do "$AP" session on "local_r${round}_$i" >/dev/null & done; wait
+  n=$(jq --arg p "local_r${round}_" '[.sessions | keys[] | select(startswith($p))] | length' "$HOME/.claude/needs-you/autopilot.json")
+  [ "$n" = 6 ] || lost="$lost round $round: $n of 6;"
+done
+same ap-parallel-writes-kept "$lost" ""
 
 # Global off takes the same lock: a session switch racing it cannot undo it.
 "$AP" on 23:59 >/dev/null
@@ -201,7 +219,7 @@ echo '{"until_epoch":1,"since_epoch":0,"until":"past"}' > "$HOME/.claude/needs-y
 check expired-no-deny "$(fire "Question after the end time")" "permissionDecision" 0
 check expired-report-empty "$("$AP" report)" "No autopilot decisions." 1
 
-# --- While the owner is at the Mac -----------------------------------------------
+# --- While the owner is at the computer, or nobody can tell --------------------
 
 setup present
 "$AP" on 23:59 >/dev/null
@@ -212,6 +230,17 @@ out=$(echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_inpu
 check present-permission-not-granted "$out" "allow" 0
 NEEDS_YOU_AUTOPILOT_IDLE_MINUTES=0 sh -c 'echo "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"Now?\"}]}}" | "$0"' "$HOOK" > "$WORK/now.out"
 check idle-zero-answers-at-once "$(cat "$WORK/now.out")" '"permissionDecision": "deny"' 1
+# The idle time cannot be read: the owner counts as present.
+export FAKE_NO_IDLE=1 FAKE_IDLE_NS=600000000000
+check unknown-idle-no-deny "$(fire "Which path when nobody knows?")" "permissionDecision" 0
+same unknown-idle-goes-to-window "$(entry .msg)" "Which path when nobody knows?"
+check unknown-idle-doctor "$("$AP" doctor)" "autopilot will NOT answer" 1
+unset FAKE_NO_IDLE
+check known-idle-doctor "$("$AP" doctor)" "idle time: 600 s" 1
+# A setting from the file reaches the hook and the doctor.
+echo '{"NEEDS_YOU_AUTOPILOT_IDLE_MINUTES":"20"}' > "$HOME/.claude/needs-you/settings.json"
+check idle-minutes-from-file "$(fire "Ten minutes idle, twenty needed?")" "permissionDecision" 0
+rm -f "$HOME/.claude/needs-you/settings.json"
 export FAKE_IDLE_NS=600000000000
 
 # --- A ticked session goes off after a day -----------------------------------------

@@ -1,8 +1,10 @@
 # Shared set-up for tests/test.sh and tests/autopilot-test.sh (sourced).
 #
-# Stand-ins for the window, terminal-notifier, osascript, open and ioreg come
-# first on PATH, and HOME points at a temp folder. Nothing shows on screen and
-# no real state is touched.
+# Stand-ins for the window, terminal-notifier, osascript, open, pbcopy, ioreg
+# and uname come first on PATH, and HOME points at a temp folder. Nothing shows
+# on screen and no real state is touched. uname answers FAKE_UNAME (Darwin by
+# default), so these suites test the macOS behaviour on every system; the
+# system-specific parts (Linux, Windows) are in tests/platform-test.sh.
 # shellcheck shell=bash disable=SC2034
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$ROOT/hooks/needs-you.sh"
@@ -11,6 +13,8 @@ WORK=$(mktemp -d /tmp/needs-you-test.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin"
 FAIL=0
+# Time for a background hook to start; Git Bash starts processes far slower.
+case "${OSTYPE:-}" in msys*|cygwin*) SPAWN_WAIT=1.2 ;; *) SPAWN_WAIT=0.3 ;; esac
 
 cat > "$WORK/bin/window" <<'EOF'
 #!/bin/bash
@@ -36,8 +40,16 @@ echo "OPEN $*" >> "$FAKE_LOG"
 EOF
 cat > "$WORK/bin/ioreg" <<'EOF'
 #!/bin/bash
+[ -n "${FAKE_NO_IDLE:-}" ] && exit 0
 echo "    | |   \"HIDIdleTime\" = ${FAKE_IDLE_NS:-0}"
 EOF
+cat > "$WORK/bin/pbcopy" <<'EOF'
+#!/bin/bash
+echo "PBCOPY $(cat)" >> "$FAKE_LOG"
+EOF
+REAL_UNAME=$(command -v uname)
+printf '#!/bin/bash\nif [ -n "${FAKE_UNAME:-}" ] && [ "${1:-}" = -s ]; then echo "$FAKE_UNAME"; exit 0; fi\nexec %q "$@"\n' \
+  "$REAL_UNAME" > "$WORK/bin/uname"
 chmod +x "$WORK/bin/"*
 export PATH="$WORK/bin:$PATH" NEEDS_YOU_WINDOW_CMD="$WORK/bin/window"
 
@@ -46,8 +58,11 @@ export PATH="$WORK/bin:$PATH" NEEDS_YOU_WINDOW_CMD="$WORK/bin/window"
 # in a git repository called my-repo.
 setup() {
   export HOME="$WORK/$1" FAKE_LOG="$WORK/$1.log"
-  export CLAUDE_CODE_HOST_SESSION_ID="local_test"
-  unset FAKE_BANNER_EXIT FAKE_ANSWER FAKE_NO_WINDOW FAKE_IDLE_NS
+  export CLAUDE_CODE_HOST_SESSION_ID="local_test" FAKE_UNAME=Darwin
+  unset FAKE_BANNER_EXIT FAKE_ANSWER FAKE_NO_WINDOW FAKE_IDLE_NS FAKE_NO_IDLE
+  # No display, desktop app data or PowerShell of the machine running the tests.
+  unset DISPLAY WAYLAND_DISPLAY XDG_CONFIG_HOME
+  export APPDATA="$HOME/AppData/Roaming"
   # Only the test's own window stand-in; no text or setting of the machine.
   local v
   for v in $(compgen -v NEEDS_YOU_); do [ "$v" = NEEDS_YOU_WINDOW_CMD ] || unset "$v"; done
@@ -82,6 +97,22 @@ check() {  # name, text, fixed string, 1 = must be present / 0 = must be absent
   if [ "$got" = "$4" ]; then echo "PASS $1"
   else echo "FAIL $1: '$3' present=$got, want $4"; printf '%s\n' "$2"; FAIL=1; fi
 }
+# Git Bash cannot make a file read-only for its owner; those checks are skipped.
+readonly_works() {
+  local f="$WORK/.ro-probe"
+  : > "$f"; chmod 400 "$f"
+  if [ -w "$f" ]; then rm -f "$f"; return 1; fi
+  chmod 600 "$f"; rm -f "$f"
+}
+# Nor a folder that its owner cannot write to.
+readonly_dir_works() {
+  local d="$WORK/.ro-dir" ok=1
+  mkdir -p "$d"; chmod 500 "$d"
+  if ( : > "$d/x" ) 2>/dev/null; then ok=0; fi
+  chmod 700 "$d"; rm -rf "$d"
+  [ "$ok" = 1 ]
+}
+skip() { echo "SKIP $1: $2"; }
 same() {  # name, got, want
   if [ "$2" = "$3" ]; then echo "PASS $1"; else echo "FAIL $1: got '$2', want '$3'"; FAIL=1; fi
 }
